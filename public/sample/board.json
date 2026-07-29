@@ -1,0 +1,377 @@
+{
+  "version": 1,
+  "id": "b_sample",
+  "title": "Acme — client demo",
+  "groups": [
+    {
+      "id": "g_bugs",
+      "title": "Bug Reports",
+      "color": "#E9A23B",
+      "blurb": "raw reports → one ranked issue → the fix lands",
+      "layout": "auto",
+      "autoLayout": {
+        "columns": 3,
+        "gap": 260
+      },
+      "origin": {
+        "x": 0,
+        "y": 0
+      },
+      "screens": [
+        {
+          "id": "s_inbox",
+          "name": "The pile",
+          "src": "images/inbox.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "intake",
+            "triage",
+            "volume"
+          ],
+          "body": "Inbox 1284 reports this week 0 triaged Game crashes when I save controller keeps drifting left audio out of sync"
+        },
+        {
+          "id": "s_issue",
+          "name": "One issue",
+          "src": "images/issue.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "dedup",
+            "crash",
+            "priorities"
+          ],
+          "related": [
+            "s_inbox"
+          ],
+          "body": "Report 218 Crash on save 218 players hit 41% of sessions merged reproduction steps"
+        },
+        {
+          "id": "s_sent",
+          "name": "The damage",
+          "src": "images/sentiment.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "sentiment",
+            "trend",
+            "analytics"
+          ],
+          "body": "Player sentiment rolling 12 weeks weeks 9 10 collapse onset matches first crash on save report"
+        }
+      ],
+      "steps": [
+        {
+          "id": "st_input",
+          "screen": "s_inbox",
+          "kicker": "the input",
+          "gutter": "right",
+          "caption": "It starts as noise.",
+          "notes": [
+            {
+              "id": "n_pile",
+              "text": "1,284 reports. Today this is somebody's **entire job**, and they still miss things.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.145,
+                "w": 0.42,
+                "h": 0.035
+              }
+            }
+          ]
+        },
+        {
+          "id": "st_work",
+          "screen": "s_issue",
+          "kicker": "the work",
+          "gutter": "right",
+          "caption": "218 of those were the same bug.",
+          "notes": [
+            {
+              "id": "n_one",
+              "text": "One issue, not 218 tickets. The merge happens at intake.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.105,
+                "w": 0.28,
+                "h": 0.045
+              }
+            },
+            {
+              "id": "n_kpi",
+              "text": "Now it's a number you can **prioritise against** — reach, not volume.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.185,
+                "w": 0.6,
+                "h": 0.098
+              }
+            },
+            {
+              "id": "n_repro",
+              "text": "Repro steps assembled from what players actually wrote.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.515,
+                "w": 0.6,
+                "h": 0.148
+              }
+            }
+          ]
+        },
+        {
+          "id": "st_stakes",
+          "screen": "s_sent",
+          "kicker": "the stakes",
+          "gutter": "left",
+          "caption": "And you can see what it cost you.",
+          "notes": [
+            {
+              "id": "n_dip",
+              "text": "The dip **is** the bug. Weeks before it reaches your reviews.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.185,
+                "w": 0.62,
+                "h": 0.335
+              }
+            }
+          ]
+        },
+        {
+          "id": "st_map",
+          "screen": null,
+          "kicker": "the map",
+          "gutter": "right",
+          "caption": "Everything behind that email fits on one page.",
+          "notes": []
+        },
+        {
+          "id": "st_back",
+          "screen": "s_inbox",
+          "kicker": "back where we started",
+          "gutter": "right",
+          "caption": "Same inbox. Nothing left for anyone to triage.",
+          "notes": [
+            {
+              "id": "n_back",
+              "text": "Every one of these is now attached to a ranked issue — **automatically**.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.145,
+                "w": 0.42,
+                "h": 0.035
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g_requests",
+      "title": "Feature Requests",
+      "color": "#4FC1A0",
+      "blurb": "what players ask for, ranked by who actually plays",
+      "layout": "auto",
+      "autoLayout": {
+        "columns": 2,
+        "gap": 260
+      },
+      "origin": {
+        "x": 5200,
+        "y": 0
+      },
+      "screens": [
+        {
+          "id": "s_wish",
+          "name": "The wishlist",
+          "src": "images/requests.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "requests",
+            "votes",
+            "backlog"
+          ],
+          "body": "Requests 96 open deduplicated from 1410 messages Ultrawide monitor support 340 votes rebindable controls colourblind palette"
+        },
+        {
+          "id": "s_req",
+          "name": "340 voices, one ask",
+          "src": "images/request.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "requests",
+            "votes",
+            "segments"
+          ],
+          "related": [
+            "s_wish"
+          ],
+          "body": "Request 41 Ultrawide monitor support 340 votes merged from 27 differently worded asks 61% are paying"
+        }
+      ],
+      "steps": [
+        {
+          "id": "st_wish",
+          "screen": "s_wish",
+          "kicker": "the wishlist",
+          "gutter": "right",
+          "caption": "Players ask for a thousand things. These are the ones that matter.",
+          "notes": [
+            {
+              "id": "n_dedup",
+              "text": "96 requests, from 1,410 messages. **The dedup is the product.**",
+              "rect": {
+                "x": 0.18,
+                "y": 0.145,
+                "w": 0.44,
+                "h": 0.035
+              }
+            }
+          ]
+        },
+        {
+          "id": "st_one",
+          "screen": "s_req",
+          "kicker": "one request",
+          "gutter": "right",
+          "caption": "Twenty-seven ways of asking the same thing.",
+          "notes": [
+            {
+              "id": "n_ask",
+              "text": "Nobody typed the same words. It is still one request.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.105,
+                "w": 0.4,
+                "h": 0.045
+              }
+            },
+            {
+              "id": "n_who",
+              "text": "Ranked by **who** asked, not how loudly. 61% of them pay you.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.185,
+                "w": 0.6,
+                "h": 0.098
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g_discord",
+      "title": "Discord Integration",
+      "color": "#7C8CF8",
+      "blurb": "intake where the players already are",
+      "layout": "manual",
+      "origin": {
+        "x": 0,
+        "y": 2400
+      },
+      "screens": [
+        {
+          "id": "s_chat",
+          "name": "In the channel",
+          "src": "images/discord.svg",
+          "w": 1280,
+          "h": 800,
+          "pos": {
+            "x": 0,
+            "y": 0
+          },
+          "keywords": [
+            "discord",
+            "intake",
+            "dedup",
+            "bot"
+          ],
+          "body": "Acme Playtest general bugs feedback patch-notes game crashes every single time i save matched to 217 existing reports"
+        }
+      ],
+      "steps": [
+        {
+          "id": "st_chat",
+          "screen": "s_chat",
+          "kicker": "where they already are",
+          "gutter": "right",
+          "caption": "Your players never left Discord.",
+          "notes": [
+            {
+              "id": "n_door",
+              "text": "Dedup happens at the door. No form, no portal, no account to create.",
+              "rect": {
+                "x": 0.2,
+                "y": 0.225,
+                "w": 0.36,
+                "h": 0.1
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g_custom",
+      "title": "Customization",
+      "color": "#B183E8",
+      "blurb": "your brand on it, embedded wherever you want",
+      "layout": "auto",
+      "origin": {
+        "x": 5200,
+        "y": 2400
+      },
+      "screens": [
+        {
+          "id": "s_brand",
+          "name": "Your brand",
+          "src": "images/branding.svg",
+          "w": 1280,
+          "h": 800,
+          "keywords": [
+            "branding",
+            "theme",
+            "domain"
+          ],
+          "body": "Appearance Branding players should never see our name accent colour logo custom domain feedback.yourstudio.com SSL issued"
+        }
+      ],
+      "steps": [
+        {
+          "id": "st_brand",
+          "screen": "s_brand",
+          "kicker": "your brand",
+          "gutter": "right",
+          "caption": "Players should never see our name.",
+          "notes": [
+            {
+              "id": "n_accent",
+              "text": "Accent, logo, typography. It reads as **your** studio.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.185,
+                "w": 0.6,
+                "h": 0.19
+              }
+            },
+            {
+              "id": "n_domain",
+              "text": "On your own domain, with your own certificate.",
+              "rect": {
+                "x": 0.18,
+                "y": 0.395,
+                "w": 0.6,
+                "h": 0.175
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

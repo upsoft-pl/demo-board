@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Demo Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0A0D12;
+  --plate:#FFFFFF;
+  --accent:#E9A23B;              /* set per active group */
+  --accent-dim:rgba(233,162,59,.42);
+  --accent-soft:rgba(233,162,59,.34);
+  --paper:#F5EFE3;
+  --paper-ink:#1B1712;
+
+  --serif:"Instrument Serif",Georgia,serif;
+  --read:"Newsreader",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:#E8EAF0;
+  font-family:var(--sans);-webkit-font-smoothing:antialiased}
+
+/* ══════════ board surface ══════════ */
+/* The plates are screenshots, not documents: dragging to pan must never
+   drag-select their text. Scoped to the board so the ⌘K input stays a
+   normal, fully selectable text field. */
+#stage,#stage *{user-select:none;-webkit-user-select:none}
+#stage img,#stage .plate{-webkit-user-drag:none}
+#stage{position:fixed;inset:0;overflow:hidden;cursor:grab;
+  background:radial-gradient(120% 90% at 50% 8%, #141A24 0%, #0A0D12 58%, #06080B 100%)}
+#stage.dragging{cursor:grabbing}
+#grid{position:fixed;inset:-200px;pointer-events:none;z-index:1;
+  background-image:
+    linear-gradient(rgba(255,255,255,.030) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.030) 1px,transparent 1px),
+    linear-gradient(rgba(255,255,255,.055) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.055) 1px,transparent 1px);
+  background-size:34px 34px,34px 34px,170px 170px,170px 170px;
+  mask-image:radial-gradient(120% 100% at 50% 45%,#000 25%,transparent 78%)}
+#grain{position:fixed;inset:0;pointer-events:none;z-index:2;opacity:.5;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E")}
+#vignette{position:fixed;inset:0;pointer-events:none;z-index:3;
+  background:radial-gradient(105% 80% at 50% 45%,transparent 42%,rgba(0,0,0,.55) 100%)}
+#world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;z-index:4}
+
+/* ══════════ group regions ══════════ */
+.gframe{position:absolute;border-radius:52px;pointer-events:none;
+  transition:opacity .55s cubic-bezier(.2,.6,.2,1),background .55s}
+.gframe.away{opacity:.22}
+.gtitle{position:absolute;left:8px;bottom:100%;margin-bottom:34px;display:flex;align-items:baseline;gap:26px;
+  white-space:nowrap;transition:opacity .4s}
+.gtitle .nm{font-family:var(--serif);font-size:118px;line-height:.9;letter-spacing:.002em}
+.gtitle .ct{font-family:var(--mono);font-size:30px;letter-spacing:.22em;text-transform:uppercase;opacity:.55}
+body.close .gtitle{opacity:0}
+
+/* ══════════ plates ══════════ */
+.plate{position:absolute;background:var(--plate);overflow:hidden;
+  box-shadow:0 2px 4px rgba(0,0,0,.4),0 28px 70px -12px rgba(0,0,0,.75),
+             0 0 0 1px rgba(255,255,255,.07), 0 0 0 8px rgba(255,255,255,.014);
+  transition:opacity .5s cubic-bezier(.2,.6,.2,1), filter .5s}
+.plate.near{opacity:.34;filter:saturate(.4)}     /* same group, not focused */
+.plate.far{opacity:.11;filter:saturate(.1)}      /* another group entirely */
+.plate-tag{position:absolute;left:0;bottom:-64px;display:flex;align-items:baseline;gap:16px;
+  transition:opacity .4s;white-space:nowrap}
+.plate-tag .idx{font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:.12em;opacity:.85}
+.plate-tag .nm{font-family:var(--serif);font-size:46px;line-height:1;color:#AEB7C7}
+.plate-tag .rule{width:120px;height:1px;background:linear-gradient(90deg,rgba(174,183,199,.5),transparent);
+  align-self:center}
+body.close .plate-tag{opacity:0}
+
+/* ══════════ fake product UI (stand-ins for real screenshots) ══════════ */
+.pw{height:100%;display:flex;flex-direction:column;font-family:var(--sans)}
+.pw-bar{height:40px;background:#EDEFF3;border-bottom:1px solid #DDE1E8;display:flex;align-items:center;
+  gap:7px;padding:0 15px;flex-shrink:0}
+.pw-bar i{width:11px;height:11px;border-radius:50%;display:block}
+.pw-url{flex:1;height:23px;background:#fff;border:1px solid #E3E7ED;border-radius:6px;margin-left:12px;
+  display:flex;align-items:center;padding:0 11px;font-family:var(--mono);font-size:11.5px;color:#98A1B0}
+.pw-body{flex:1;display:flex;min-height:0}
+.nav{width:206px;background:#101319;padding:18px 12px;flex-shrink:0;display:flex;flex-direction:column}
+.nav-brand{display:flex;align-items:center;gap:9px;padding:0 8px 20px;color:#fff;font-weight:700;font-size:15px}
+.nav-brand em{width:18px;height:18px;border-radius:5px;background:linear-gradient(135deg,#4C8DFF,#2A5FD8);
+  display:block;flex-shrink:0}
+.nav-i{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:7px;color:#8B94A6;
+  font-size:13px;font-weight:500;margin-bottom:1px}
+.nav-i b{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:500;opacity:.65}
+.nav-i i{width:15px;height:15px;border-radius:4px;background:currentColor;opacity:.55;display:block;flex-shrink:0}
+.nav-i.on{background:#1D2431;color:#fff}
+.nav-i.on i{opacity:1;background:#4C8DFF}
+.doc{flex:1;background:#F7F8FA;padding:26px 30px;overflow:hidden}
+.eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:#9BA4B4;margin-bottom:9px}
+.h1{font-size:25px;font-weight:700;color:#161B24;margin:0 0 5px;letter-spacing:-.022em}
+.sub{font-size:13.5px;color:#6E7787;margin:0 0 22px}
+.card{background:#fff;border:1px solid #E4E8EE;border-radius:10px;padding:17px;margin-bottom:11px}
+.card-t{font-size:13px;font-weight:600;color:#232A38;margin-bottom:12px}
+.row{display:flex;align-items:center;gap:13px;padding:13px 15px;background:#fff;border:1px solid #E4E8EE;
+  border-radius:9px;margin-bottom:8px}
+.row .t{font-size:13.5px;font-weight:500;color:#232A38}
+.row .m{font-family:var(--mono);font-size:11px;color:#98A1B0;margin-top:3px}
+.av{width:28px;height:28px;border-radius:50%;flex-shrink:0;background:linear-gradient(135deg,#C3D0E4,#9FB2CE)}
+.grow{flex:1}
+.tag{font-family:var(--mono);font-size:10.5px;font-weight:500;padding:4px 9px;border-radius:5px;
+  letter-spacing:.03em;text-transform:uppercase}
+.tag.crit{background:#FEE7E4;color:#B5341F}
+.tag.warn{background:#FEF2D6;color:#9A6206}
+.tag.good{background:#DBF6E5;color:#08704A}
+.tag.info{background:#E0EBFF;color:#1B54C4}
+.tag.mute{background:#EEF1F5;color:#79828F}
+.tag.vote{background:#EDE7FB;color:#5B32B8}
+.kpis{display:flex;gap:11px;margin-bottom:16px}
+.kpis>div{flex:1;background:#fff;border:1px solid #E4E8EE;border-radius:10px;padding:15px 16px}
+.kpis .n{font-size:29px;font-weight:700;color:#161B24;letter-spacing:-.03em;line-height:1}
+.kpis .n small{font-size:15px;font-weight:600;color:#6E7787}
+.kpis .l{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+  color:#9BA4B4;margin-top:7px}
+.ln{height:8px;border-radius:4px;background:#E9EDF3;margin-bottom:7px}
+.ln.a{width:94%}.ln.b{width:76%}.ln.c{width:52%}
+.chart{display:flex;align-items:flex-end;gap:9px;height:158px}
+.chart div{flex:1;border-radius:4px 4px 0 0;background:linear-gradient(180deg,#6E9BFF,#3567D6)}
+.chart div.bad{background:linear-gradient(180deg,#FF8571,#D6412A)}
+.axis{display:flex;gap:9px;margin-top:9px}
+.axis span{flex:1;text-align:center;font-family:var(--mono);font-size:9.5px;color:#A8B0BE}
+.vt{display:flex;flex-direction:column;align-items:center;justify-content:center;width:52px;height:52px;
+  border:1px solid #DDE3EC;border-radius:9px;flex-shrink:0;background:#fff}
+.vt b{font-size:16px;font-weight:700;color:#232A38;line-height:1}
+.vt span{font-family:var(--mono);font-size:8.5px;color:#9BA4B4;letter-spacing:.08em;margin-top:3px}
+.vt.top{border-color:#8B5CF6;background:#F7F3FF}
+.vt.top b{color:#5B32B8}
+.sw{display:flex;gap:9px;margin-bottom:14px}
+.sw i{width:38px;height:38px;border-radius:9px;display:block;border:1px solid rgba(0,0,0,.07)}
+.sw i.on{box-shadow:0 0 0 2px #fff,0 0 0 4px #8B5CF6}
+.fld{margin-bottom:14px}
+.fld label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+  color:#9BA4B4;margin-bottom:6px}
+.fld div{height:36px;border:1px solid #DDE3EC;border-radius:8px;background:#fff;display:flex;align-items:center;
+  padding:0 12px;font-size:13px;color:#3D4657}
+.tgl{width:38px;height:22px;border-radius:12px;background:#8B5CF6;position:relative;flex-shrink:0}
+.tgl::after{content:'';position:absolute;right:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.tgl.off{background:#D4DAE3}
+.tgl.off::after{left:3px;right:auto}
+
+.dc{display:flex;height:100%;background:#313338;font-family:var(--sans)}
+.dc-s{width:184px;background:#2B2D31;padding:16px 10px}
+.dc-s h4{color:#F2F3F5;font-size:13px;margin:0 0 14px;padding:0 8px}
+.dc-c{color:#949BA4;font-size:13.5px;padding:6px 9px;border-radius:5px;margin-bottom:1px}
+.dc-c.on{background:#404249;color:#fff}
+.dc-m{flex:1;padding:18px 22px}
+.msg{display:flex;gap:12px;margin-bottom:17px}
+.msg .a{width:34px;height:34px;border-radius:50%;flex-shrink:0}
+.msg .n{color:#F2F3F5;font-size:13.5px;font-weight:600;margin-bottom:3px}
+.msg .n span{font-family:var(--mono);font-size:10px;color:#7B828E;font-weight:400;margin-left:8px}
+.msg .x{color:#DBDEE1;font-size:13.5px;line-height:1.52}
+.bot{font-family:var(--mono);font-size:9.5px;background:#5865F2;color:#fff;padding:1px 5px;border-radius:3px;
+  margin-left:6px;letter-spacing:.04em}
+.emb{border-left:3px solid #23A55A;background:#2B2D31;border-radius:5px;padding:11px 13px;margin-top:8px;
+  max-width:420px}
+.emb.blurple{border-left-color:#5865F2}
+.emb .h{color:#fff;font-size:13px;font-weight:600;margin-bottom:5px}
+.emb .d{color:#B5BAC1;font-size:12.5px;line-height:1.55}
+.emb .d b{color:#3BC77A}
+.emb .fl{display:flex;gap:22px;margin-top:10px}
+.emb .fl div span{display:block;color:#949BA4;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;
+  text-transform:uppercase;margin-bottom:3px}
+.emb .fl div b{color:#fff;font-size:14px}
+
+.em{height:100%;background:#fff;padding:40px 44px;font-family:var(--sans)}
+.em-k{font-family:var(--mono);font-size:10.5px;letter-spacing:.15em;text-transform:uppercase;color:#A2AAB8;
+  margin-bottom:16px}
+.em-h{font-size:29px;font-weight:700;color:#0F1419;letter-spacing:-.028em;line-height:1.18;margin-bottom:9px}
+.em-s{font-size:13.5px;color:#6E7787;margin-bottom:28px;padding-bottom:22px;border-bottom:1px solid #EBEEF2}
+.em-b{border:1px solid #E7EAEF;border-radius:11px;padding:16px 17px;margin-bottom:11px}
+.em-b .hd{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+.em-b .hd .t{font-size:14px;font-weight:600;color:#1B2230}
+.em-f{margin-top:26px;font-size:13px;line-height:1.6;color:#7A828F;font-style:italic;font-family:var(--read)}
+
+/* embeddable widget mock */
+.site{height:100%;background:#12141A;display:flex;flex-direction:column}
+.site-nav{height:52px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;
+  padding:0 24px;gap:26px}
+.site-nav b{color:#fff;font-size:15px;font-weight:700;letter-spacing:-.01em}
+.site-nav span{color:#767F91;font-size:13px}
+.site-body{flex:1;padding:26px;display:flex;gap:20px}
+.site-hero{flex:1;border-radius:12px;background:linear-gradient(140deg,#1D2331,#141821);
+  border:1px solid rgba(255,255,255,.06);padding:24px}
+.site-hero h3{color:#fff;margin:0 0 8px;font-size:20px;letter-spacing:-.02em}
+.site-hero p{color:#7A8396;font-size:13px;line-height:1.6;margin:0}
+.wdg{width:312px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.09);
+  background:#171B24;flex-shrink:0}
+.wdg-h{padding:13px 15px;background:#1E2430;border-bottom:1px solid rgba(255,255,255,.07);
+  display:flex;align-items:center;gap:9px}
+.wdg-h em{width:15px;height:15px;border-radius:4px;display:block;flex-shrink:0}
+.wdg-h b{color:#fff;font-size:13px}
+.wdg-b{padding:13px 15px}
+.wdg-b .it{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.055)}
+.wdg-b .it:last-child{border:0}
+.wdg-b .it b{color:#DDE2EA;font-size:12.5px;font-weight:500;display:block;margin-bottom:4px}
+.wdg-b .it span{color:#6B7484;font-family:var(--mono);font-size:10px}
+
+/* ══════════ annotations ══════════ */
+#leaders{position:fixed;inset:0;z-index:20;pointer-events:none}
+#leaders path{fill:none;stroke:var(--accent);stroke-width:1.25;opacity:.72;
+  stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+  animation:draw .55s cubic-bezier(.4,0,.2,1) forwards;animation-delay:var(--d)}
+@keyframes draw{to{stroke-dashoffset:0}}
+#leaders circle{fill:var(--accent);opacity:0;animation:dot .3s ease forwards;animation-delay:calc(var(--d) + .45s)}
+@keyframes dot{to{opacity:.9}}
+.target{position:fixed;z-index:19;border:1.25px solid var(--accent);border-radius:5px;pointer-events:none;
+  opacity:0;animation:tgt .5s cubic-bezier(.34,1.4,.64,1) forwards;animation-delay:var(--d)}
+@keyframes tgt{from{opacity:0;transform:scale(1.06)}to{opacity:.95;transform:scale(1)}}
+#notes{position:fixed;inset:0;z-index:21;pointer-events:none}
+.note{position:absolute;width:322px;background:var(--paper);color:var(--paper-ink);
+  padding:15px 18px 16px;border-radius:3px;
+  box-shadow:0 1px 2px rgba(0,0,0,.5),0 22px 48px -10px rgba(0,0,0,.75),0 0 0 1px rgba(0,0,0,.35);
+  opacity:0;transform:translateY(10px) scale(.975);
+  animation:note .5s cubic-bezier(.22,1.2,.4,1) forwards;animation-delay:var(--d)}
+.note.out{animation:noteOut .18s ease forwards}
+@keyframes note{to{opacity:1;transform:none}}
+@keyframes noteOut{to{opacity:0;transform:translateY(-4px) scale(.985)}}
+.note::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
+.note .n{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.16em;
+  color:var(--note-idx,#9A6206);margin-bottom:8px;display:block}
+.note .x{font-family:var(--read);font-size:16.5px;line-height:1.46;font-weight:350}
+.note .x b{font-weight:600;box-shadow:inset 0 -.5em 0 var(--accent-soft)}
+
+/* ══════════ caption ══════════ */
+#caption{position:fixed;top:34px;width:322px;z-index:50;pointer-events:none;transition:opacity .3s}
+#caption .g{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--accent);display:flex;align-items:center;gap:8px;margin-bottom:11px}
+#caption .g em{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block;flex-shrink:0}
+#caption .k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:#6D7689;display:block;margin-bottom:9px}
+#caption .t{font-family:var(--serif);font-size:30px;line-height:1.16;color:#EAEDF4}
+#caption .r{width:44px;height:1px;background:var(--accent-dim);margin-top:16px}
+#caption.fade{opacity:0}
+#caption.centered{width:min(760px,70vw);top:auto;bottom:112px;left:50%!important;
+  transform:translateX(-50%);text-align:center}
+#caption.centered .g{justify-content:center}
+#caption.centered .t{font-size:38px}
+#caption.centered .r{margin:18px auto 0}
+#caption .g,#caption .k,#caption .t{animation:capIn .6s cubic-bezier(.22,1,.36,1) both}
+#caption .k{animation-delay:.06s} #caption .t{animation-delay:.12s}
+@keyframes capIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+
+/* ══════════ hud ══════════ */
+#hud{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;
+  gap:5px;background:rgba(12,15,21,.84);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(16px);
+  border-radius:11px;padding:7px 8px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+#hud button{all:unset;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:#79839A;padding:7px 11px;border-radius:7px;transition:.16s}
+#hud button:hover{color:#fff;background:rgba(255,255,255,.06)}
+#hud button[disabled]{opacity:.26;cursor:default}
+#hud button[disabled]:hover{color:#79839A;background:none}
+#gchip{display:flex;align-items:center;gap:9px;cursor:pointer;padding:6px 13px 6px 11px;border-radius:8px;
+  transition:.16s;max-width:230px}
+#gchip:hover{background:rgba(255,255,255,.06)}
+#gchip em{width:9px;height:9px;border-radius:50%;background:var(--accent);display:block;flex-shrink:0;
+  box-shadow:0 0 10px var(--accent-dim)}
+#gchip b{font-family:var(--sans);font-size:12.5px;font-weight:600;color:#DFE4EC;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+#gchip s{font-family:var(--mono);font-size:9px;color:#5B6478;text-decoration:none;letter-spacing:.1em}
+#dots{display:flex;gap:3px;padding:0 8px}
+#dots i{width:22px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);cursor:pointer;
+  transition:.28s;display:block}
+#dots i:hover{background:rgba(255,255,255,.32)}
+#dots i.on{background:var(--accent);box-shadow:0 0 10px var(--accent-dim)}
+#dots i.past{background:var(--accent-dim)}
+.sep{width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 3px}
+
+#help{position:fixed;top:24px;right:26px;z-index:55;font-family:var(--mono);font-size:10.5px;
+  line-height:1.9;color:#3E4657;text-align:right;letter-spacing:.04em;transition:opacity .3s}
+#help.dim{opacity:.25}
+#help b{color:#616B80;font-weight:500}
+#mark{position:fixed;top:26px;left:28px;z-index:55;font-family:var(--mono);font-size:10.5px;
+  letter-spacing:.2em;text-transform:uppercase;color:#3E4657}
+#mark s{color:var(--accent);text-decoration:none}
+
+/* end-of-group / detail-zoom chips */
+.chip{position:fixed;left:50%;bottom:92px;transform:translateX(-50%) translateY(6px);z-index:58;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--accent);background:rgba(12,15,21,.92);border:1px solid var(--accent-dim);
+  padding:8px 15px;border-radius:20px;cursor:pointer;opacity:0;pointer-events:none;
+  transition:opacity .26s,transform .26s;backdrop-filter:blur(12px);white-space:nowrap}
+.chip.on{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+.chip:hover{background:rgba(255,255,255,.07)}
+.chip em{font-style:normal;color:#0B0E13;background:var(--accent);border-radius:3px;padding:1px 5px;margin-left:8px}
+#nextg{bottom:132px}
+#nextg i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px;vertical-align:baseline}
+
+/* ══════════ ⌘K index ══════════ */
+#scrim{position:fixed;inset:0;z-index:80;background:rgba(5,7,10,.62);backdrop-filter:blur(7px);
+  opacity:0;pointer-events:none;transition:opacity .2s}
+#scrim.on{opacity:1;pointer-events:auto}
+#pal{position:fixed;left:50%;top:14vh;transform:translateX(-50%) translateY(-10px) scale(.985);
+  width:min(700px,92vw);z-index:81;opacity:0;pointer-events:none;
+  background:rgba(15,19,26,.97);border:1px solid rgba(255,255,255,.11);border-radius:14px;
+  box-shadow:0 40px 110px rgba(0,0,0,.8);overflow:hidden;
+  transition:opacity .2s cubic-bezier(.2,1,.4,1),transform .24s cubic-bezier(.2,1,.4,1)}
+#pal.on{opacity:1;transform:translateX(-50%) translateY(0) scale(1);pointer-events:auto}
+#pal-in{display:flex;align-items:center;gap:13px;padding:17px 20px;border-bottom:1px solid rgba(255,255,255,.08)}
+#pal-in s{color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:14px;opacity:.9}
+#pal-in input{all:unset;flex:1;font-family:var(--sans);font-size:17px;color:#EEF1F6}
+#pal-in input::placeholder{color:#4E5666}
+#pal-in kbd{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:#5B6478;
+  border:1px solid rgba(255,255,255,.13);border-radius:5px;padding:3px 7px}
+#pal-list{max-height:min(452px,54vh);overflow-y:auto;padding:0 9px 10px}
+#pal-list::-webkit-scrollbar{width:8px}
+#pal-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+.phead{font-family:var(--mono);font-size:9.5px;letter-spacing:.19em;text-transform:uppercase;
+  color:#5B6478;padding:15px 12px 7px}
+.phead b{font-weight:400}
+.res{display:flex;align-items:center;gap:15px;padding:11px 12px;border-radius:9px;cursor:pointer}
+.res.sel{background:rgba(255,255,255,.055)}
+.res.sel[data-c]{box-shadow:inset 0 0 0 1px currentColor}
+.res .map{width:52px;height:34px;flex-shrink:0;opacity:.72}
+.res.sel .map{opacity:1}
+.res .map rect{fill:none;stroke:#4E5666;stroke-width:1.4;vector-effect:non-scaling-stroke}
+.res .map rect.me{fill:currentColor;stroke:currentColor}
+.res .map rect.grp{stroke:currentColor;opacity:.55}
+.res .bd{min-width:0;flex:1}
+.res .nm{font-family:var(--serif);font-size:19px;color:#E9ECF3;line-height:1.15}
+.res.sel .nm{color:#fff}
+.res .cx{font-size:12.5px;color:#727C90;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res .cx mark{background:rgba(255,255,255,.14);color:#F2F5FA;border-radius:2px;padding:0 2px}
+.res .gp{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;
+  display:flex;align-items:center;gap:6px;flex-shrink:0;color:currentColor;opacity:.85}
+.res .gp em{width:7px;height:7px;border-radius:50%;background:currentColor;display:block}
+.res .no{font-family:var(--mono);font-size:10px;color:#454D5E;flex-shrink:0;letter-spacing:.1em}
+#pal-empty{padding:26px 21px 32px;font-family:var(--read);font-size:16px;color:#5B6478;font-style:italic}
+#pal-foot{display:flex;gap:18px;padding:11px 21px;border-top:1px solid rgba(255,255,255,.07);
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#454D5E}
+#pal-foot b{color:#6C768A;font-weight:500}
+</style>
+</head>
+<body>
+
+<div id="stage"><div id="grid"></div><div id="world"></div></div>
+<div id="grain"></div>
+<div id="vignette"></div>
+<svg id="leaders"></svg>
+<div id="notes"></div>
+
+<div id="mark"><s>◆</s> &nbsp;demo board — outcome first</div>
+<div id="caption"><span class="g"><em></em><span></span></span><span class="k"></span><div class="t"></div><div class="r"></div></div>
+
+<div id="dock" class="chip">frame this plate <em>↵</em></div>
+<div id="nextg" class="chip"></div>
+
+<div id="hud">
+  <div id="gchip" title="Switch group (⌘K)"><em></em><b></b><s></s></div>
+  <div class="sep"></div>
+  <button id="prev" title="Previous step in this group (←)">←</button>
+  <div id="dots"></div>
+  <button id="next" title="Next step in this group (→)">→</button>
+  <div class="sep"></div>
+  <button id="back" title="Back (⌘[ or backspace)">↩</button>
+  <button id="fwd" title="Forward (⌘])">↪</button>
+  <div class="sep"></div>
+  <button id="fitg" title="Fit this group (G)">group</button>
+  <button id="fit" title="Fit whole board (F)">all</button>
+  <button id="find">⌘K</button>
+</div>
+
+<div id="help">
+  <b>← →</b> step in group &nbsp;·&nbsp; <b>⌘1…4</b> jump to group<br>
+  <b>⌘K</b> find &nbsp;·&nbsp; <b>G</b> fit group &nbsp;·&nbsp; <b>F</b> fit board<br>
+  <b>⌘[ ⌘]</b> back / forward &nbsp;·&nbsp; drag &amp; wheel to fly
+</div>
+
+<div id="scrim"></div>
+<div id="pal">
+  <div id="pal-in"><s>⌘K</s><input id="pal-q" placeholder="Jump to a group or a screen…" spellcheck="false" autocomplete="off"><kbd>esc</kbd></div>
+  <div id="pal-list"></div>
+  <div id="pal-foot"><span><b>↑↓</b> browse</span><span><b>↵</b> fly there</span><span><b>esc</b> back</span></div>
+</div>
+
+<script>
+/* ══════════════════ shared fragments ══════════════════ */
+const bar = u => `<div class="pw-bar"><i style="background:#FF5F57"></i><i style="background:#FEBC2E"></i>
+  <i style="background:#28C840"></i><div class="pw-url">${u}</div></div>`;
+const nav = on => `<div class="nav"><div class="nav-brand"><em></em>Acme</div>
+  ${[['Inbox','1,284'],['Reports','218'],['Requests','96'],['Sentiment',''],['Settings','']]
+    .map(([n,c])=>`<div class="nav-i ${n===on?'on':''}"><i></i>${n}${c?`<b>${c}</b>`:''}</div>`).join('')}</div>`;
+
+/* ══════════════════ groups ══════════════════
+   Each group owns a spatial region, a colour, and its own ordered flow.
+   Plate coordinates are relative to the group origin.                        */
+const GROUPS = [
+  {
+    id:'bugs', title:'Bug Reports', color:'#E9A23B', ox:0, oy:0,
+    blurb:'raw reports → one ranked issue → the fix lands',
+    plates:[
+      { id:'inbox', tag:'The pile', tags:['intake','triage','volume','reports'],
+        x:0, y:0, w:1300, h:860, html:
+        `<div class="pw">${bar('app.acme.io/inbox')}<div class="pw-body">${nav('Inbox')}<div class="doc">
+          <div class="eyebrow">Unprocessed</div><div class="h1">Inbox</div>
+          <div class="sub" data-hot="i1">1,284 reports this week · 0 triaged by a human</div>
+          ${[['crit','Game crashes when I save','discord · nightowl_42 · 6m'],
+             ['warn','controller keeps drifting left','discord · vex · 41m'],
+             ['good','love the new map honestly','steam · 1h'],
+             ['crit','crash after saving in ch. 4','discord · pixelgrind · 2h'],
+             ['warn','stick drift again??','discord · morrow · 3h'],
+             ['info','audio out of sync with my friend','discord · kesslr · 4h'],
+             ['crit','saving = instant crash','steam · 5h']]
+            .map(([c,t,m])=>`<div class="row"><div class="av"></div><div><div class="t">${t}</div>
+              <div class="m">${m}</div></div><div class="grow"></div>
+              <span class="tag ${c}">${c==='crit'?'crash':c==='warn'?'input':c==='good'?'praise':'audio'}</span></div>`).join('')}
+        </div></div></div>` },
+
+      { id:'group', tag:'One issue', tags:['dedup','triage','reports','crash','priorities'],
+        related:['inbox','fix'], x:1540, y:0, w:1300, h:860, html:
+        `<div class="pw">${bar('app.acme.io/reports/218')}<div class="pw-body">${nav('Reports')}<div class="doc">
+          <div class="eyebrow">Report #218</div><div class="h1" data-hot="g1">Crash on save</div>
+          <div class="sub">218 individual reports merged automatically</div>
+          <div class="kpis" data-hot="g2">
+            <div><div class="n">218</div><div class="l">players hit</div></div>
+            <div><div class="n">41<small>%</small></div><div class="l">of sessions</div></div>
+            <div><div class="n">4.2<small>d</small></div><div class="l">unresolved</div></div></div>
+          <div class="card"><div class="card-t">Merged from</div>
+            ${['Game crashes when I save','crash after saving in ch. 4','saving = instant crash','save → black screen']
+              .map(t=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0">
+                <span class="tag mute">dup</span><span style="font-family:var(--mono);font-size:11.5px;color:#79828F">${t}</span></div>`).join('')}</div>
+          <div class="card" data-hot="g3"><div class="card-t">Reproduction steps · extracted from the reports</div>
+            <div class="ln a"></div><div class="ln b"></div><div class="ln c"></div></div>
+        </div></div></div>` },
+
+      { id:'sent', tag:'The damage', tags:['sentiment','trend','analytics','crash','reviews'],
+        x:3080, y:0, w:1300, h:860, html:
+        `<div class="pw">${bar('app.acme.io/sentiment')}<div class="pw-body">${nav('Sentiment')}<div class="doc">
+          <div class="eyebrow">Rolling 12 weeks</div><div class="h1">Player sentiment</div>
+          <div class="sub">Derived from report tone, not surveys</div>
+          <div class="card" data-hot="s1"><div class="chart">
+            ${[64,71,67,75,72,79,81,57,42,37,53,69].map((h,i)=>
+              `<div class="${i===8||i===9?'bad':''}" style="height:${h}%"></div>`).join('')}</div>
+            <div class="axis">${['w1','w2','w3','w4','w5','w6','w7','w8','w9','w10','w11','w12']
+              .map(w=>`<span>${w}</span>`).join('')}</div></div>
+          <div class="row"><span class="tag crit">−34%</span><div><div class="t">Weeks 9–10 collapse</div>
+            <div class="m">onset matches first &ldquo;crash on save&rdquo; report</div></div></div>
+        </div></div></div>` },
+
+      { id:'fix', tag:'The loop closes', tags:['notify','players','retention','crash','outcome'],
+        related:['digest'], x:770, y:1180, w:1180, h:800, html:
+        `<div class="pw">${bar('app.acme.io/reports/218')}<div class="pw-body">${nav('Reports')}<div class="doc">
+          <div class="eyebrow">Report #218 · resolved</div><div class="h1">Crash on save</div>
+          <div class="sub">Shipped in v1.4.2 · 11 days after first report</div>
+          <div class="card" data-hot="f1"><div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+            <span class="tag good">delivered</span><span class="card-t" style="margin:0">All 218 reporters notified</span></div>
+            <div class="ln a"></div><div class="ln c"></div></div>
+          <div class="kpis"><div><div class="n">141</div><div class="l">thanked you</div></div>
+            <div><div class="n">22</div><div class="l">replied</div></div>
+            <div><div class="n">0</div><div class="l">emails you wrote</div></div></div>
+        </div></div></div>` },
+
+      { id:'digest', tag:'Monday, 09:00', tags:['email','digest','outcome','priorities'],
+        x:2400, y:1180, w:820, h:1000, html:
+        `<div class="pw">${bar('mail.google.com')}<div class="pw-body"><div class="em">
+          <div class="em-k">Acme · weekly digest</div>
+          <div class="em-h" data-hot="d1">Three issues are costing you<br>41% of play sessions.</div>
+          <div class="em-s">Mar 3 – Mar 10 · 1,284 reports processed</div>
+          <div class="em-b" data-hot="d2"><div class="hd"><span class="tag crit">critical</span>
+            <span class="t">Crash on save</span><span class="grow"></span><span class="tag mute">218 players</span></div>
+            <div class="ln a"></div><div class="ln b"></div></div>
+          <div class="em-b"><div class="hd"><span class="tag warn">rising</span>
+            <span class="t">Controller drift</span><span class="grow"></span><span class="tag mute">74 players</span></div>
+            <div class="ln a"></div><div class="ln c"></div></div>
+          <div class="em-b"><div class="hd"><span class="tag info">new</span>
+            <span class="t">Audio desync in co-op</span><span class="grow"></span><span class="tag mute">31 players</span></div>
+            <div class="ln b"></div></div>
+          <div class="em-f">No one on your team triaged these. They were collected, deduplicated and ranked while you slept.</div>
+        </div></div></div>` },
+    ],
+    steps:[
+      { plate:'digest', kicker:'the outcome', gutter:'left',
+        title:'Start at the end. This is what Monday morning looks like.', notes:[
+        { hot:'d1', text:'The whole product in one sentence. <b>Nobody triaged anything.</b>' },
+        { hot:'d2', text:'Ranked by players affected — not by whoever complained loudest.' } ] },
+      { overview:true, kicker:'the map', gutter:'right',
+        title:'Everything behind that email fits on one page.', notes:[] },
+      { plate:'inbox', kicker:'the input', gutter:'right',
+        title:'It starts as noise.', notes:[
+        { hot:'i1', text:'1,284 reports. Today this is somebody&rsquo;s <b>entire job</b>, and they still miss things.' } ] },
+      { plate:'group', kicker:'the work', gutter:'right',
+        title:'218 of those were the same bug.', notes:[
+        { hot:'g1', text:'One issue, not 218 tickets. The merge happens at intake.' },
+        { hot:'g2', text:'Now it&rsquo;s a number you can <b>prioritise against</b> — reach, not volume.' },
+        { hot:'g3', text:'Repro steps assembled from what players actually wrote.' } ] },
+      { plate:'sent', kicker:'the stakes', gutter:'left',
+        title:'And you can see what it cost you.', notes:[
+        { hot:'s1', text:'The dip <b>is</b> the bug. Weeks before it reaches your reviews.' } ] },
+      { plate:'fix', kicker:'the return', gutter:'right',
+        title:'Every one of them hears back.', notes:[
+        { hot:'f1', text:'218 people told the fix shipped. <b>You wrote zero emails.</b>' } ] },
+    ],
+  },
+
+  {
+    id:'requests', title:'Feature Requests', color:'#4FC1A0', ox:5600, oy:0,
+    blurb:'what players ask for, ranked by who actually plays',
+    plates:[
+      { id:'req-board', tag:'The wishlist', tags:['requests','votes','roadmap','backlog'],
+        x:0, y:0, w:1300, h:860, html:
+        `<div class="pw">${bar('app.acme.io/requests')}<div class="pw-body">${nav('Requests')}<div class="doc">
+          <div class="eyebrow">Open · sorted by reach</div><div class="h1">Requests</div>
+          <div class="sub" data-hot="r1">96 open · deduplicated from 1,410 messages</div>
+          ${[[340,'Ultrawide monitor support','top','planned'],
+             [212,'Rebindable controls','','planned'],
+             [188,'Colourblind palette','','under review'],
+             [143,'Offline co-op','',''],
+             [97,'Steam Deck preset','',''],
+             [64,'Photo mode','','']]
+            .map(([v,t,cls,st])=>`<div class="row"><div class="vt ${cls}"><b>${v}</b><span>votes</span></div>
+              <div><div class="t">${t}</div><div class="m">${st?st:'no status'}</div></div>
+              <div class="grow"></div>${st?`<span class="tag ${st==='planned'?'good':'info'}">${st}</span>`:''}</div>`).join('')}
+        </div></div></div>` },
+
+      { id:'req-detail', tag:'340 voices, one ask', tags:['requests','votes','segments','dedup'],
+        related:['req-board','req-ship'], x:1540, y:0, w:1300, h:860, html:
+        `<div class="pw">${bar('app.acme.io/requests/41')}<div class="pw-body">${nav('Requests')}<div class="doc">
+          <div class="eyebrow">Request #41</div><div class="h1" data-hot="q1">Ultrawide monitor support</div>
+          <div class="sub">340 votes · merged from 27 differently-worded asks</div>
+          <div class="kpis" data-hot="q2">
+            <div><div class="n">340</div><div class="l">asked</div></div>
+            <div><div class="n">61<small>%</small></div><div class="l">are paying</div></div>
+            <div><div class="n">2.4<small>×</small></div><div class="l">avg playtime</div></div></div>
+          <div class="card" data-hot="q3"><div class="card-t">Merged phrasings</div>
+            ${['21:9 support please','game is stretched on my ultrawide','black bars on 3440x1440','widescreen fov option']
+              .map(t=>`<div style="display:flex;gap:10px;align-items:center;padding:6px 0">
+                <span class="tag mute">same</span><span style="font-family:var(--mono);font-size:11.5px;color:#79828F">${t}</span></div>`).join('')}</div>
+          <div class="row"><span class="tag vote">segment</span><div><div class="t">Skews heavily to 40h+ players</div>
+            <div class="m">the people least likely to churn quietly</div></div></div>
+        </div></div></div>` },
+
+      { id:'req-ship', tag:'Told, not guessed', tags:['requests','notify','roadmap','outcome'],
+        related:['req-detail'], x:770, y:1180, w:1180, h:800, html:
+        `<div class="pw">${bar('app.acme.io/requests/41')}<div class="pw-body">${nav('Requests')}<div class="doc">
+          <div class="eyebrow">Request #41 · shipped</div><div class="h1">Ultrawide monitor support</div>
+          <div class="sub">Released in v1.5 · announced automatically</div>
+          <div class="card" data-hot="p1"><div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+            <span class="tag good">announced</span><span class="card-t" style="margin:0">340 voters pinged where they asked</span></div>
+            <div class="ln a"></div><div class="ln c"></div></div>
+          <div class="kpis"><div><div class="n">88<small>%</small></div><div class="l">came back</div></div>
+            <div><div class="n">31</div><div class="l">left a review</div></div>
+            <div><div class="n">0</div><div class="l">announcements written</div></div></div>
+        </div></div></div>` },
+    ],
+    steps:[
+      { plate:'req-board', kicker:'the wishlist', gutter:'right',
+        title:'Players ask for a thousand things. These are the ones that matter.', notes:[
+        { hot:'r1', text:'96 requests, from 1,410 messages. <b>The dedup is the product.</b>' } ] },
+      { plate:'req-detail', kicker:'one request', gutter:'right',
+        title:'Twenty-seven ways of asking the same thing.', notes:[
+        { hot:'q1', text:'Nobody typed the same words. It&rsquo;s still one request.' },
+        { hot:'q2', text:'Ranked by <b>who</b> asked, not how loudly. 61% of them pay you.' },
+        { hot:'q3', text:'You can see every original phrasing — nothing is hidden behind the merge.' } ] },
+      { plate:'req-ship', kicker:'the payoff', gutter:'left',
+        title:'Ship it, and the 340 people who asked find out.', notes:[
+        { hot:'p1', text:'Announced back into the channel they asked in. <b>88% came back.</b>' } ] },
+    ],
+  },
+
+  {
+    id:'discord', title:'Discord Integration', color:'#7C8CF8', ox:0, oy:2700,
+    blurb:'intake where the players already are',
+    plates:[
+      { id:'dc-chat', tag:'In the channel', tags:['discord','intake','dedup','players','bot'],
+        x:0, y:0, w:1140, h:800, html:
+        `<div class="dc"><div class="dc-s"><h4>◆ Acme Playtest</h4>
+          ${['general','bugs','feedback','patch-notes'].map(c=>
+            `<div class="dc-c ${c==='bugs'?'on':''}"># ${c}</div>`).join('')}</div>
+          <div class="dc-m">
+            <div class="msg"><div class="a" style="background:linear-gradient(135deg,#C74A64,#8E2B44)"></div>
+              <div><div class="n">nightowl_42 <span>2:14 PM</span></div>
+              <div class="x">game crashes every single time i save in chapter 4</div></div></div>
+            <div class="msg"><div class="a" style="background:linear-gradient(135deg,#3BC77A,#188C51)"></div>
+              <div><div class="n">Acme<span class="bot">BOT</span></div>
+              <div class="x" data-hot="c1">Logged, thanks.
+                <div class="emb"><div class="h">#218 · Crash on save</div>
+                <div class="d">Matched to <b>217 existing reports</b> · you'll be pinged when it ships</div></div></div></div></div>
+            <div class="msg"><div class="a" style="background:linear-gradient(135deg,#7B5BD6,#4B2E9E)"></div>
+              <div><div class="n">pixelgrind <span>2:16 PM</span></div>
+              <div class="x">same, thought it was just me</div></div></div>
+          </div></div>` },
+
+      { id:'dc-setup', tag:'Two minutes', tags:['discord','setup','integration','channels','config'],
+        related:['dc-chat'], x:1380, y:0, w:1200, h:820, html:
+        `<div class="pw">${bar('app.acme.io/integrations/discord')}<div class="pw-body">${nav('Settings')}<div class="doc">
+          <div class="eyebrow">Integrations</div><div class="h1">Discord</div>
+          <div class="sub" data-hot="n1">Connected to <b>Acme Playtest</b> · 4,120 members</div>
+          <div class="card"><div class="card-t">Watched channels</div>
+            ${[['# bugs','reports',1],['# feedback','requests',1],['# general','off',0]]
+              .map(([c,k,on])=>`<div style="display:flex;align-items:center;gap:12px;padding:9px 0">
+                <span style="font-family:var(--mono);font-size:12.5px;color:#3D4657;width:110px">${c}</span>
+                <span class="tag ${on?'info':'mute'}">${k}</span><div class="grow"></div>
+                <div class="tgl ${on?'':'off'}"></div></div>`).join('')}</div>
+          <div class="card" data-hot="n2"><div class="card-t">Behaviour</div>
+            <div style="display:flex;align-items:center;gap:12px;padding:7px 0">
+              <span style="font-size:13px;color:#3D4657">Reply in-thread with the match</span>
+              <div class="grow"></div><div class="tgl"></div></div>
+            <div style="display:flex;align-items:center;gap:12px;padding:7px 0">
+              <span style="font-size:13px;color:#3D4657">Ping reporters when it ships</span>
+              <div class="grow"></div><div class="tgl"></div></div></div>
+        </div></div></div>` },
+
+      { id:'dc-digest', tag:'The weekly drop', tags:['discord','digest','announce','bot','outcome'],
+        related:['dc-chat'], x:2820, y:0, w:1000, h:760, html:
+        `<div class="dc"><div class="dc-s"><h4>◆ Acme Playtest</h4>
+          ${['general','bugs','feedback','patch-notes'].map(c=>
+            `<div class="dc-c ${c==='patch-notes'?'on':''}"># ${c}</div>`).join('')}</div>
+          <div class="dc-m">
+            <div class="msg"><div class="a" style="background:linear-gradient(135deg,#3BC77A,#188C51)"></div>
+              <div><div class="n">Acme<span class="bot">BOT</span> <span>Mon 09:00</span></div>
+              <div class="x" data-hot="w1">This week on Acme
+                <div class="emb blurple"><div class="h">v1.4.2 — what you told us, what we did</div>
+                <div class="d">Crash on save is fixed. 218 of you reported it.</div>
+                <div class="fl"><div><span>fixed</span><b>3</b></div><div><span>shipped</span><b>1 request</b></div>
+                  <div><span>players notified</span><b>558</b></div></div></div></div></div></div>
+            <div class="msg"><div class="a" style="background:linear-gradient(135deg,#C74A64,#8E2B44)"></div>
+              <div><div class="n">nightowl_42 <span>9:04 AM</span></div>
+              <div class="x">wait they actually fixed it 👀</div></div></div>
+          </div></div>` },
+    ],
+    steps:[
+      { plate:'dc-chat', kicker:'where they already are', gutter:'right',
+        title:'Your players never left Discord.', notes:[
+        { hot:'c1', text:'Dedup happens at the door. No form, no portal, no account to create.' } ] },
+      { plate:'dc-setup', kicker:'the setup', gutter:'right',
+        title:'Two minutes, and you never touch it again.', notes:[
+        { hot:'n1', text:'One OAuth. It reads the channels <b>you</b> pick and nothing else.' },
+        { hot:'n2', text:'The reply-in-thread behaviour is what makes players keep reporting.' } ] },
+      { plate:'dc-digest', kicker:'the weekly drop', gutter:'left',
+        title:'And it closes the loop in public.', notes:[
+        { hot:'w1', text:'Posted where they asked. <b>This is the retention mechanic</b>, not the changelog.' } ] },
+    ],
+  },
+
+  {
+    id:'custom', title:'Customization', color:'#B183E8', ox:5600, oy:2700,
+    blurb:'your brand on it, embedded wherever you want',
+    plates:[
+      { id:'brand', tag:'Your brand', tags:['branding','theme','colors','domain','customization'],
+        x:0, y:0, w:1220, h:820, html:
+        `<div class="pw">${bar('app.acme.io/settings/branding')}<div class="pw-body">${nav('Settings')}<div class="doc">
+          <div class="eyebrow">Appearance</div><div class="h1">Branding</div>
+          <div class="sub">Players should never see our name</div>
+          <div class="card" data-hot="b1"><div class="card-t">Accent colour</div>
+            <div class="sw"><i style="background:#8B5CF6" class="on"></i><i style="background:#E9A23B"></i>
+              <i style="background:#4FC1A0"></i><i style="background:#F0596A"></i><i style="background:#4C8DFF"></i></div>
+            <div class="fld"><label>Logo</label><div>studio-mark.svg &nbsp;·&nbsp; 240×64</div></div></div>
+          <div class="card" data-hot="b2"><div class="card-t">Custom domain</div>
+            <div class="fld"><label>Portal address</label><div>feedback.yourstudio.com</div></div>
+            <div style="display:flex;align-items:center;gap:9px"><span class="tag good">verified</span>
+              <span class="m" style="font-family:var(--mono);font-size:11px;color:#98A1B0">SSL issued · 2h ago</span></div></div>
+        </div></div></div>` },
+
+      { id:'widget', tag:'Anywhere you want', tags:['embed','widget','site','customization','integration'],
+        related:['brand'], x:1460, y:0, w:1140, h:780, html:
+        `<div class="site"><div class="site-nav"><b>YOUR STUDIO</b><span>Game</span><span>News</span>
+          <span style="color:#fff">Feedback</span></div>
+          <div class="site-body">
+            <div class="site-hero"><h3>Nightfall — Chapter 4 is live</h3>
+              <p>New biome, rebindable controls, and ultrawide support.<br>Tell us what breaks.</p></div>
+            <div class="wdg" data-hot="v1"><div class="wdg-h"><em style="background:#8B5CF6"></em><b>Report an issue</b></div>
+              <div class="wdg-b">
+                ${[['Crash on save','fixed in v1.4.2 · 218 reports'],
+                   ['Ultrawide support','shipped in v1.5 · 340 votes'],
+                   ['Controller drift','in progress · 74 reports']]
+                  .map(([t,m])=>`<div class="it"><b>${t}</b><span>${m}</span></div>`).join('')}
+              </div></div>
+          </div></div>` },
+    ],
+    steps:[
+      { plate:'brand', kicker:'your brand', gutter:'right',
+        title:'Players should never see our name.', notes:[
+        { hot:'b1', text:'Accent, logo, typography. It reads as <b>your</b> studio.' },
+        { hot:'b2', text:'On your own domain, with your own certificate.' } ] },
+      { plate:'widget', kicker:'anywhere', gutter:'left',
+        title:'And it lives wherever your players already are.', notes:[
+        { hot:'v1', text:'One script tag. The same deduplicated data as the dashboard.' } ] },
+    ],
+  },
+];
+
+/* flatten with absolute coordinates */
+const PLATES=[];
+GROUPS.forEach((g,gi)=>{
+  g.index=gi;
+  g.plates.forEach(p=>{ p.group=g.id; p.ax=g.ox+p.x; p.ay=g.oy+p.y; PLATES.push(p); });
+});
+const byId=Object.fromEntries(PLATES.map(p=>[p.id,p]));
+const groupById=Object.fromEntries(GROUPS.map(g=>[g.id,g]));
+
+const hexA=(hex,a)=>{ const n=parseInt(hex.slice(1),16);
+  return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; };
+
+/* group bounds in world space */
+GROUPS.forEach(g=>{
+  const P=g.plates;
+  g.bb={ x0:Math.min(...P.map(p=>p.ax)), y0:Math.min(...P.map(p=>p.ay)),
+         x1:Math.max(...P.map(p=>p.ax+p.w)), y1:Math.max(...P.map(p=>p.ay+p.h)) };
+});
+
+/* ══════════════════ build ══════════════════ */
+const stage=document.getElementById('stage'), world=document.getElementById('world');
+const leaders=document.getElementById('leaders'), notesLayer=document.getElementById('notes');
+const capG=document.querySelector('#caption .g span'), capK=document.querySelector('#caption .k');
+const capT=document.querySelector('#caption .t');
+const caption=document.getElementById('caption'), dotsEl=document.getElementById('dots');
+const gridEl=document.getElementById('grid'), gchip=document.getElementById('gchip');
+const nextgChip=document.getElementById('nextg'), dockChip=document.getElementById('dock');
+
+const PAD=190;
+const el={}, gel={};
+GROUPS.forEach(g=>{
+  const f=document.createElement('div');
+  f.className='gframe';
+  f.style.cssText=`left:${g.bb.x0-PAD}px;top:${g.bb.y0-PAD}px;
+    width:${g.bb.x1-g.bb.x0+PAD*2}px;height:${g.bb.y1-g.bb.y0+PAD*2}px;
+    background:${hexA(g.color,.045)};box-shadow:inset 0 0 0 2px ${hexA(g.color,.22)}`;
+  f.innerHTML=`<div class="gtitle" style="color:${g.color}">
+    <span class="nm">${g.title}</span><span class="ct">${g.steps.length} steps</span></div>`;
+  world.appendChild(f); gel[g.id]=f;
+});
+PLATES.forEach(p=>{
+  const g=groupById[p.group];
+  const d=document.createElement('div');
+  d.className='plate';
+  d.style.cssText=`left:${p.ax}px;top:${p.ay}px;width:${p.w}px;height:${p.h}px`;
+  const n=g.plates.indexOf(p)+1;
+  d.innerHTML=`<div class="plate-tag"><span class="idx" style="color:${g.color}">${g.id.slice(0,3).toUpperCase()}·${String(n).padStart(2,'0')}</span>
+    <span class="nm">${p.tag}</span><span class="rule"></span></div>`+p.html;
+  world.appendChild(d); el[p.id]=d;
+  d.addEventListener('click',()=>{ if(cam.z<fitOf(p)*0.5) dock(p.id); });
+});
+
+/* ══════════════════ camera ══════════════════ */
+const NOTE_W=322, MARGIN=30, TOP_PAD=34, BOT_PAD=96;
+let cam={x:2000,y:1000,z:.10}, anim=null;
+let gi=0, si=0;                                   // active group index / step index
+let activeGutter='right';
+
+const G=()=>GROUPS[gi];
+const S=()=>G().steps[si];
+
+function safeBox(gutter,hasNotes){
+  const g=hasNotes?NOTE_W+MARGIN*2:MARGIN;
+  return { l:gutter==='left'?g:MARGIN, r:innerWidth-(gutter==='right'?g:MARGIN),
+           t:TOP_PAD, b:innerHeight-BOT_PAD };
+}
+function fitOf(p,box){ box=box||safeBox('right',false);
+  return Math.min((box.r-box.l)/p.w,(box.b-box.t)/p.h)*.97; }
+function camFor(p,box){
+  const z=fitOf(p,box), bcx=(box.l+box.r)/2, bcy=(box.t+box.b)/2;
+  return { x:p.ax+p.w/2-(bcx-innerWidth/2)/z, y:p.ay+p.h/2-(bcy-innerHeight/2)/z, z };
+}
+function camForBox(x0,y0,x1,y1,padPx){
+  const p=padPx||420;
+  return { x:(x0+x1)/2, y:(y0+y1)/2+40,
+           z:Math.min(innerWidth/(x1-x0+p), innerHeight/(y1-y0+p)) };
+}
+function groupCam(g){ return camForBox(g.bb.x0,g.bb.y0,g.bb.x1,g.bb.y1,700); }
+function boardCam(){
+  return camForBox(Math.min(...GROUPS.map(g=>g.bb.x0)), Math.min(...GROUPS.map(g=>g.bb.y0)),
+                   Math.max(...GROUPS.map(g=>g.bb.x1)), Math.max(...GROUPS.map(g=>g.bb.y1)), 900);
+}
+function render(){
+  world.style.transform=`translate(${innerWidth/2}px,${innerHeight/2}px) scale(${cam.z}) translate(${-cam.x}px,${-cam.y}px)`;
+  gridEl.style.backgroundPosition=`${-cam.x*cam.z}px ${-cam.y*cam.z}px`;
+  gridEl.style.opacity=Math.min(1,.35+cam.z*1.4);
+  document.body.classList.toggle('close',cam.z>0.42);
+  layout();
+}
+function flyTo(t,dur=980,after){
+  const f={...cam}, t0=performance.now();
+  cancelAnimationFrame(anim);
+  const ez=k=>k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;
+  (function tick(now){
+    const k=Math.min(1,(now-t0)/dur), e=ez(k);
+    cam.x=f.x+(t.x-f.x)*e; cam.y=f.y+(t.y-f.y)*e;
+    cam.z=Math.exp(Math.log(f.z)+(Math.log(t.z)-Math.log(f.z))*e);
+    render();
+    if(k<1) anim=requestAnimationFrame(tick); else after&&after();
+  })(performance.now());
+}
+
+/* ══════════════════ accent follows the active group ══════════════════ */
+function applyAccent(g){
+  const r=document.documentElement.style;
+  r.setProperty('--accent',g.color);
+  r.setProperty('--accent-dim',hexA(g.color,.42));
+  r.setProperty('--accent-soft',hexA(g.color,.34));
+  r.setProperty('--note-idx',shade(g.color,-.42));
+}
+/* darken for the note index label so it stays readable on cream paper */
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  const f=c=>Math.round(Math.max(0,Math.min(255,c+(amt<0?c*amt:(255-c)*amt))));
+  return `rgb(${f(n>>16&255)},${f(n>>8&255)},${f(n&255)})`;
+}
+
+/* ══════════════════ annotations ══════════════════ */
+let live=[], liveKey=null;
+function clearNotes(){
+  live.forEach(n=>{ n.el.classList.add('out');
+    const {el:e,path,dot,ring}=n; setTimeout(()=>{e.remove();path.remove();dot.remove();ring.remove()},180); });
+  live=[]; liveKey=null;
+}
+function showNotes(defs,gutter,key){
+  if(liveKey===key) return;
+  clearNotes(); liveKey=key; activeGutter=gutter;
+  defs.forEach((d,i)=>{
+    const hot=document.querySelector(`[data-hot="${d.hot}"]`); if(!hot) return;
+    const delay=(i*170)+'ms';
+    const n=document.createElement('div'); n.className='note'; n.style.setProperty('--d',delay);
+    n.innerHTML=`<span class="n">Note ${String(i+1).padStart(2,'0')}</span><div class="x">${d.text}</div>`;
+    notesLayer.appendChild(n);
+    const ring=document.createElement('div'); ring.className='target'; ring.style.setProperty('--d',delay);
+    document.body.appendChild(ring);
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.style.setProperty('--d',delay); leaders.appendChild(path);
+    const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    dot.setAttribute('r','3.5'); dot.style.setProperty('--d',delay); leaders.appendChild(dot);
+    live.push({el:n,ring,path,dot,hot});
+  });
+  layout(true);
+}
+function layout(first){
+  if(!live.length) return;
+  const right=activeGutter==='right';
+  const x=right?innerWidth-NOTE_W-MARGIN:MARGIN;
+  const items=live.map(n=>{ const r=n.hot.getBoundingClientRect();
+    return {n,r,ty:r.top+r.height/2}; }).sort((a,b)=>a.ty-b.ty);
+  const cap=caption.classList.contains('centered')?null:caption.getBoundingClientRect();
+  let cur=cap?cap.bottom+26:TOP_PAD;
+  for(const it of items){
+    const h=it.n.el.offsetHeight;
+    let y=Math.max(cur,it.ty-h/2);
+    y=Math.min(y,innerHeight-BOT_PAD-h+34);
+    it.n.el.style.left=x+'px'; it.n.el.style.top=y+'px';
+    it.y=y; it.h=h; cur=y+h+13;
+  }
+  for(const it of items){
+    const r=it.r;
+    it.n.ring.style.cssText+=`left:${r.left-6}px;top:${r.top-6}px;width:${r.width+12}px;height:${r.height+12}px`;
+    const bx=right?x:x+NOTE_W, by=it.y+it.h/2;
+    const tx=right?Math.min(r.right+8,bx-16):Math.max(r.left-8,bx+16);
+    const ty=it.ty, c=(bx+tx)/2;
+    it.n.path.setAttribute('d',`M ${bx} ${by} C ${c} ${by} ${c} ${ty} ${tx} ${ty}`);
+    it.n.dot.setAttribute('cx',tx); it.n.dot.setAttribute('cy',ty);
+    if(first) it.n.path.style.setProperty('--len',it.n.path.getTotalLength());
+  }
+}
+
+/* depth: focused plate → its group → everything else */
+function depth(plateId,groupId){
+  PLATES.forEach(p=>{
+    const e=el[p.id];
+    e.classList.toggle('near', !!plateId && p.id!==plateId && p.group===groupId);
+    e.classList.toggle('far',  !!groupId && p.group!==groupId);
+  });
+  GROUPS.forEach(g=>gel[g.id].classList.toggle('away', !!groupId && g.id!==groupId));
+}
+
+/* ══════════════════ history ══════════════════ */
+let hist=[], histI=-1, histLock=false;
+const backBtn=document.getElementById('back'), fwdBtn=document.getElementById('fwd');
+function histUI(){ backBtn.disabled=histI<=0; fwdBtn.disabled=histI>=hist.length-1; }
+function histPush(e){
+  if(histLock) return;
+  const c=hist[histI];
+  if(c&&c.k===e.k&&c.g===e.g&&c.s===e.s) return;
+  hist=hist.slice(0,histI+1); hist.push(e); histI=hist.length-1; histUI();
+}
+function histGo(d){
+  const ni=histI+d; if(ni<0||ni>=hist.length) return;
+  histI=ni; const e=hist[histI];
+  histLock=true;
+  if(e.k==='board') fitBoard(); else goto(e.g,e.s);
+  histLock=false; histUI();
+}
+
+/* ══════════════════ steps ══════════════════ */
+function placeCaption(g,st,i){
+  capG.textContent=g.title;
+  capK.textContent=st.overview?`Overview · ${g.steps.length} steps`
+                              :`Step ${String(i+1).padStart(2,'0')} — ${st.kicker}`;
+  capT.innerHTML=st.title;
+  caption.classList.toggle('centered',!!st.overview);
+  if(!st.overview) caption.style.left=(st.gutter==='right'?innerWidth-NOTE_W-MARGIN:MARGIN)+'px';
+  for(const n of [capG.parentNode,capK,capT]){ n.style.animation='none'; void n.offsetWidth; n.style.animation=''; }
+}
+function paintHud(){
+  const g=G();
+  gchip.querySelector('b').textContent=g.title;
+  gchip.querySelector('s').textContent=`${gi+1}/${GROUPS.length}`;
+  dotsEl.innerHTML='';
+  g.steps.forEach((_,j)=>{
+    const b=document.createElement('i');
+    b.className=j===si?'on':(j<si?'past':'');
+    b.title=g.steps[j].kicker;
+    b.onclick=()=>goto(gi,j);
+    dotsEl.appendChild(b);
+  });
+  document.getElementById('prev').disabled=si<=0;
+  document.getElementById('next').disabled=si>=g.steps.length-1;
+  // offer the next group only when the current flow is finished
+  const atEnd=si>=g.steps.length-1, ng=GROUPS[(gi+1)%GROUPS.length];
+  if(atEnd&&GROUPS.length>1){
+    nextgChip.innerHTML=`<i style="background:${ng.color}"></i>next group · ${ng.title} <em>⇥</em>`;
+    nextgChip.classList.add('on');
+  } else nextgChip.classList.remove('on');
+}
+function goto(gIdx,sIdx){
+  gi=(gIdx+GROUPS.length)%GROUPS.length;
+  const g=G();
+  si=Math.max(0,Math.min(sIdx,g.steps.length-1));   // clamp — never cross a group edge
+  const st=g.steps[si];
+  histPush({k:'s',g:gi,s:si});
+  applyAccent(g);
+  placeCaption(g,st,si);
+  paintHud();
+  document.getElementById('help').classList.toggle('dim',hist.length>1);
+  clearNotes(); setDockable(null);
+  if(st.overview){ depth(null,g.id); flyTo(groupCam(g),1050); return; }
+  depth(st.plate,g.id);
+  flyTo(camFor(byId[st.plate],safeBox(st.gutter,true)),1050,
+        ()=>{ if(st.notes.length) showNotes(st.notes,st.gutter,`s:${gi}:${si}`); });
+}
+function gotoGroup(gIdx){ caption.classList.remove('fade'); goto(gIdx,0); }
+function fitBoard(){
+  histPush({k:'board'});
+  clearNotes(); depth(null,null); setDockable(null);
+  caption.classList.add('fade'); flyTo(boardCam(),1100);
+}
+function fitGroup(){ clearNotes(); depth(null,G().id); caption.classList.add('fade'); flyTo(groupCam(G()),950); }
+
+/* ══════════════════ free flight ══════════════════ */
+function nearest(){
+  let best=null,bestR=0;
+  for(const p of PLATES){
+    const r=el[p.id].getBoundingClientRect();
+    const cx=r.left+r.width/2, cy=r.top+r.height/2;
+    if(Math.abs(cx-innerWidth/2)>innerWidth*.45||Math.abs(cy-innerHeight/2)>innerHeight*.48) continue;
+    const ratio=cam.z/fitOf(p);
+    if(ratio>bestR){ bestR=ratio; best=p.id; }
+  }
+  return bestR>0.5?{id:best,ratio:bestR}:null;
+}
+let dockable=null;
+function setDockable(id){ dockable=id; dockChip.classList.toggle('on',!!id); }
+function dock(id){
+  setDockable(null);
+  const p=byId[id], g=groupById[p.group];
+  const j=g.steps.findIndex(s=>s.plate===id);
+  caption.classList.remove('fade');
+  goto(g.index, j<0?0:j);
+}
+function settle(){
+  if(drag) return;
+  const n=nearest();
+  if(!n){ clearNotes(); depth(null,null); setDockable(null); return; }
+  if(n.ratio>1.35){ clearNotes(); setDockable(n.id); return; }   // reading detail — stay out of the way
+  setDockable(null);
+  const p=byId[n.id];
+  if(p.group===G().id && S().plate===n.id && liveKey===`s:${gi}:${si}`) return;
+  dock(n.id);
+}
+
+/* ══════════════════ ⌘K index ══════════════════ */
+const scrim=document.getElementById('scrim'), pal=document.getElementById('pal');
+const palQ=document.getElementById('pal-q'), palList=document.getElementById('pal-list');
+let palOpen=false, palSel=0, palRows=[];
+
+const escRe=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+const CORPUS={};
+PLATES.forEach(p=>{
+  const g=groupById[p.group];
+  const st=g.steps.find(s=>s.plate===p.id)||{};
+  CORPUS[p.id]={
+    name:p.tag, tags:p.tags||[], group:g.title,
+    title:((st.title||'')+' '+(st.kicker||'')).replace(/<[^>]+>/g,' '),
+    notes:(st.notes||[]).map(n=>n.text.replace(/<[^>]+>/g,' ')).join(' '),
+    body:el[p.id].textContent.replace(/\s+/g,' ').trim()
+  };
+});
+const BB={ x0:Math.min(...GROUPS.map(g=>g.bb.x0)), y0:Math.min(...GROUPS.map(g=>g.bb.y0)),
+           x1:Math.max(...GROUPS.map(g=>g.bb.x1)), y1:Math.max(...GROUPS.map(g=>g.bb.y1)) };
+function miniMap(plateId,groupId){
+  const W=BB.x1-BB.x0, H=BB.y1-BB.y0;
+  const body = groupId
+    ? GROUPS.map(g=>`<rect class="${g.id===groupId?'grp':''}" x="${g.bb.x0-BB.x0}" y="${g.bb.y0-BB.y0}"
+        width="${g.bb.x1-g.bb.x0}" height="${g.bb.y1-g.bb.y0}" rx="60"
+        ${g.id===groupId?'fill="currentColor" fill-opacity=".28"':''}/>`).join('')
+    : PLATES.map(p=>`<rect class="${p.id===plateId?'me':''}" x="${p.ax-BB.x0}" y="${p.ay-BB.y0}"
+        width="${p.w}" height="${p.h}" rx="30"/>`).join('');
+  return `<svg class="map" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+}
+function relatedPlates(id){
+  const me=byId[id]; if(!me) return [];
+  const myTags=new Set(me.tags||[]);
+  const g=groupById[me.group];
+  const myStep=g.steps.findIndex(s=>s.plate===id);
+  return PLATES.filter(p=>p.id!==id).map(p=>{
+    let s=0; const why=[];
+    const shared=(p.tags||[]).filter(t=>myTags.has(t));
+    if(shared.length){ s+=shared.length*3; why.push('shares '+shared.join(', ')); }
+    if((me.related||[]).includes(p.id)){ s+=5; if(!why.length) why.push('linked'); }
+    if((p.related||[]).includes(id)) s+=3;
+    if(p.group===me.group){
+      s+=4;
+      const theirStep=g.steps.findIndex(x=>x.plate===p.id);
+      if(myStep>=0&&theirStep>=0&&Math.abs(myStep-theirStep)===1) { s+=2; why.push('next in this flow'); }
+    }
+    return {kind:'plate',p,score:s,why:why.join(' · ')||'same group'};
+  }).filter(r=>r.score>0).sort((a,b)=>b.score-a.score).slice(0,5);
+}
+function searchAll(q){
+  const terms=q.toLowerCase().split(/\s+/).filter(Boolean);
+  const gs=GROUPS.map(g=>{
+    let s=0;
+    for(const t of terms){
+      let ts=0;
+      if(g.title.toLowerCase().includes(t)) ts+=8;
+      if(g.blurb.toLowerCase().includes(t)) ts+=3;
+      if(!ts) return null;
+      s+=ts;
+    }
+    return {kind:'group',g,score:s,why:g.blurb};
+  }).filter(Boolean).sort((a,b)=>b.score-a.score);
+
+  const ps=PLATES.map(p=>{
+    const c=CORPUS[p.id]; let s=0, hit='';
+    for(const t of terms){
+      let ts=0;
+      if(c.tags.some(x=>x.includes(t))) ts+=6;
+      if(c.name.toLowerCase().includes(t)) ts+=5;
+      if(c.group.toLowerCase().includes(t)) ts+=4;
+      if(c.title.toLowerCase().includes(t)) ts+=3;
+      if(c.notes.toLowerCase().includes(t)) ts+=2;
+      const bi=c.body.toLowerCase().indexOf(t);
+      if(bi>=0){ ts+=1; if(!hit) hit=c.body.slice(Math.max(0,bi-32),bi+58); }
+      if(!ts) return null;
+      s+=ts;
+    }
+    const why=hit?'…'+hit.replace(new RegExp('('+terms.map(escRe).join('|')+')','ig'),'<mark>$1</mark>')+'…'
+                 :(c.title||'');
+    return {kind:'plate',p,score:s,why};
+  }).filter(Boolean).sort((a,b)=>b.score-a.score)
+    // repeated app chrome makes bare body hits near-worthless
+    .filter((r,_,all)=>r.score>=all[0].score*0.45).slice(0,6);
+  return {gs,ps};
+}
+function rowHtml(r,i){
+  if(r.kind==='group'){
+    const n=r.g.plates.length;
+    return `<div class="res ${i===palSel?'sel':''}" data-i="${i}" data-c="1" style="color:${r.g.color}">
+      ${miniMap(null,r.g.id)}
+      <div class="bd"><div class="nm">${r.g.title}</div><div class="cx">${r.why}</div></div>
+      <div class="gp"><em></em>${r.g.steps.length} steps</div>
+      <div class="no">${n} screens</div></div>`;
+  }
+  const g=groupById[r.p.group];
+  return `<div class="res ${i===palSel?'sel':''}" data-i="${i}" data-c="1" style="color:${g.color}">
+    ${miniMap(r.p.id,null)}
+    <div class="bd"><div class="nm">${r.p.tag}</div><div class="cx">${r.why}</div></div>
+    <div class="gp"><em></em>${g.title}</div></div>`;
+}
+function palRender(){
+  const q=palQ.value.trim();
+  let html='';
+  palRows=[];
+  if(!q){
+    html+=`<div class="phead">Jump to group</div>`;
+    GROUPS.forEach(g=>{ palRows.push({kind:'group',g,why:g.blurb}); });
+    html+=palRows.map((r,i)=>rowHtml(r,i)).join('');
+    const cur=S().overview?null:S().plate;
+    const rel=cur?relatedPlates(cur):[];
+    if(rel.length){
+      html+=`<div class="phead">Related to <b style="color:${G().color}">${byId[cur].tag}</b></div>`;
+      const off=palRows.length;
+      rel.forEach(r=>palRows.push(r));
+      html+=rel.map((r,i)=>rowHtml(r,off+i)).join('');
+    }
+  } else {
+    const {gs,ps}=searchAll(q);
+    if(gs.length){ html+=`<div class="phead">Groups</div>`;
+      gs.forEach(r=>palRows.push(r)); html+=gs.map((r,i)=>rowHtml(r,i)).join(''); }
+    if(ps.length){ html+=`<div class="phead">Screens</div>`;
+      const off=palRows.length; ps.forEach(r=>palRows.push(r));
+      html+=ps.map((r,i)=>rowHtml(r,off+i)).join(''); }
+    if(!palRows.length) html=`<div id="pal-empty">Nothing on the board matches that.</div>`;
+  }
+  palList.innerHTML=html;
+  palSel=Math.min(palSel,Math.max(0,palRows.length-1));
+  [...palList.querySelectorAll('.res')].forEach(row=>{
+    row.onclick=()=>{ palSel=+row.dataset.i; palGo(); };
+    row.onmouseenter=()=>{ palSel=+row.dataset.i; markSel(); };
+  });
+  markSel();
+}
+function markSel(){
+  [...palList.querySelectorAll('.res')].forEach(r=>r.classList.toggle('sel',+r.dataset.i===palSel));
+}
+function palShow(){ palOpen=true; palQ.value=''; palSel=0; palRender();
+  scrim.classList.add('on'); pal.classList.add('on'); palQ.focus(); }
+function palHide(){ palOpen=false; scrim.classList.remove('on'); pal.classList.remove('on'); palQ.blur(); }
+function palMove(d){
+  if(!palRows.length) return;
+  palSel=(palSel+d+palRows.length)%palRows.length; markSel();
+  palList.querySelector(`.res[data-i="${palSel}"]`)?.scrollIntoView({block:'nearest'});
+}
+function palGo(){
+  const r=palRows[palSel]; if(!r) return;
+  palHide(); setDockable(null);
+  if(r.kind==='group') gotoGroup(r.g.index); else dock(r.p.id);
+}
+palQ.addEventListener('input',()=>{ palSel=0; palRender(); });
+scrim.addEventListener('click',palHide);
+
+/* ══════════════════ input ══════════════════ */
+let drag=null, freeTimer=null;
+function freeMode(){
+  caption.classList.add('fade');
+  if(live.length) clearNotes();
+  clearTimeout(freeTimer);
+  freeTimer=setTimeout(settle,300);
+}
+stage.addEventListener('pointerdown',e=>{
+  if(e.button===3){ histGo(-1); return; }
+  if(e.button===4){ histGo(1); return; }
+  if(e.button!==0) return;
+  drag={x:e.clientX,y:e.clientY,cx:cam.x,cy:cam.y};
+  stage.classList.add('dragging');
+  try{ stage.setPointerCapture(e.pointerId); }catch{}   // never let capture failure kill panning
+});
+stage.addEventListener('pointermove',e=>{ if(!drag) return;
+  cancelAnimationFrame(anim);
+  cam.x=drag.cx-(e.clientX-drag.x)/cam.z; cam.y=drag.cy-(e.clientY-drag.y)/cam.z;
+  render(); freeMode(); });
+addEventListener('pointerup',()=>{ const was=drag; drag=null;
+  stage.classList.remove('dragging'); if(was) freeMode(); });
+stage.addEventListener('wheel',e=>{ e.preventDefault(); cancelAnimationFrame(anim);
+  const nz=Math.max(.03,Math.min(2.4,cam.z*Math.exp(-e.deltaY*.0016)));
+  const mx=e.clientX-innerWidth/2, my=e.clientY-innerHeight/2;
+  cam.x+=mx/cam.z-mx/nz; cam.y+=my/cam.z-my/nz; cam.z=nz;
+  render(); freeMode(); },{passive:false});
+
+addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){
+    e.preventDefault(); palOpen?palHide():palShow(); return; }
+  if(palOpen){
+    if(e.key==='Escape'){e.preventDefault();palHide();}
+    if(e.key==='ArrowDown'){e.preventDefault();palMove(1);}
+    if(e.key==='ArrowUp'){e.preventDefault();palMove(-1);}
+    if(e.key==='Enter'){e.preventDefault();palGo();}
+    return;
+  }
+  // ⌘1…9 — jump straight to a group
+  if((e.metaKey||e.ctrlKey)&&/^[1-9]$/.test(e.key)){
+    const n=+e.key-1; if(n<GROUPS.length){ e.preventDefault(); gotoGroup(n); } return; }
+  if((e.metaKey||e.ctrlKey)&&e.key==='['){ e.preventDefault(); histGo(-1); return; }
+  if((e.metaKey||e.ctrlKey)&&e.key===']'){ e.preventDefault(); histGo(1); return; }
+  if(e.key==='Backspace'){ e.preventDefault(); histGo(e.shiftKey?1:-1); return; }
+  if(e.key==='Tab'){ e.preventDefault(); gotoGroup(gi+(e.shiftKey?-1:1)); return; }
+  if(e.key==='ArrowRight'||e.key===' '){ e.preventDefault(); caption.classList.remove('fade');
+    if(si<G().steps.length-1) goto(gi,si+1); return; }
+  if(e.key==='ArrowLeft'){ caption.classList.remove('fade');
+    if(si>0) goto(gi,si-1); return; }
+  if(e.key==='Enter'&&dockable){ e.preventDefault(); dock(dockable); return; }
+  if(e.key==='g'||e.key==='G'){ fitGroup(); return; }
+  if(e.key==='f'||e.key==='F'||e.key==='0'){ fitBoard(); return; }
+});
+addEventListener('resize',()=>{
+  const g=G(), st=S();
+  placeCaption(g,st,si);
+  cam = st.overview ? groupCam(g) : camFor(byId[st.plate],safeBox(st.gutter,true));
+  render(); layout(true);
+});
+
+document.getElementById('next').onclick=()=>{caption.classList.remove('fade'); if(si<G().steps.length-1) goto(gi,si+1)};
+document.getElementById('prev').onclick=()=>{caption.classList.remove('fade'); if(si>0) goto(gi,si-1)};
+document.getElementById('fit').onclick=fitBoard;
+document.getElementById('fitg').onclick=fitGroup;
+document.getElementById('find').onclick=()=>palOpen?palHide():palShow();
+gchip.onclick=()=>palOpen?palHide():palShow();
+nextgChip.onclick=()=>gotoGroup(gi+1);
+dockChip.onclick=()=>dockable&&dock(dockable);
+backBtn.onclick=()=>histGo(-1);
+fwdBtn.onclick=()=>histGo(1);
+
+/* boot: whole board, then dive into the first group's outcome */
+applyAccent(GROUPS[0]);
+cam=boardCam(); cam.z*=.86; render(); histUI();
+document.fonts.ready.then(()=>setTimeout(()=>goto(0,0),700));
+</script>
+</body>
+</html>

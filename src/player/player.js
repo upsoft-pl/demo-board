@@ -1,0 +1,631 @@
+/**
+ * The player: renders a board document onto a zoomable canvas.
+ *
+ * All geometry decisions are delegated to core/layout.js so they stay testable.
+ * This file is the DOM half — it reads rects, writes styles, and routes input.
+ */
+import {
+  safeBox, fitOf, camFor, camForBox, boundsOf, placeScreens,
+  hotspotToViewport, computeNoteLayout, leaderPath, framingRatio, isCentred,
+  NOTE_W, MARGIN, TOP_PAD,
+} from '../core/layout.js';
+import {
+  validateBoard, normalizeBoard, migrateBoard, resolveStep, reconcileRef, findGroup,
+  screenBackground, cropOf,
+} from '../core/schema.js';
+
+/**
+ * Inline style that shows only a screen's cropped region.
+ * The plate box is already the cropped size, so the image is scaled up by
+ * 1/crop and shifted so the wanted area lands in it.
+ */
+export function cropStyle(screen) {
+  const c = cropOf(screen);
+  return `position:absolute;width:${(100 / c.w).toFixed(4)}%;height:${(100 / c.h).toFixed(4)}%;` +
+         `left:${(-c.x / c.w * 100).toFixed(4)}%;top:${(-c.y / c.h * 100).toFixed(4)}%;` +
+         `max-width:none;object-fit:fill`;
+}
+import { createHistory } from '../core/history.js';
+import { buildCorpus, searchBoard, relatedScreens } from '../core/search.js';
+
+const DOCK_MIN = 0.5;      // below this the camera isn't looking at anything
+const DOCK_MAX = 1.35;     // above this the presenter is reading detail — leave them alone
+
+const hexA = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+};
+const shade = (hex, amt) => {
+  const n = parseInt(hex.slice(1), 16);
+  const f = c => Math.round(Math.max(0, Math.min(255, c + (amt < 0 ? c * amt : (255 - c) * amt))));
+  return `rgb(${f(n >> 16 & 255)},${f(n >> 8 & 255)},${f(n & 255)})`;
+};
+/** Minimal inline markup for note prose: **bold** only. Escapes everything else. */
+const richText = s => String(s ?? '')
+  .replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+  .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+
+/**
+ * @param {object}   o
+ * @param {Function} [o.resolveSrc] maps a board-relative src to a loadable URL.
+ *   Published sites resolve against baseUrl; the editor hands back blob URLs
+ *   for images living in OPFS, which have no meaningful path.
+ */
+export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
+  const srcOf = resolveSrc || (s => `${baseUrl}${s}`);
+  /* ── document ────────────────────────────────────────────────────────── */
+  const migrated = migrateBoard(raw);
+  const check = validateBoard(migrated);
+  if (!check.ok) throw Object.assign(new Error('Invalid board document'), { errors: check.errors });
+  const board = normalizeBoard(migrated);
+  const corpus = buildCorpus(board);
+
+  /* world placement — derived once, then cached */
+  const placed = new Map();          // screenId → {x,y,w,h}
+  const groupBB = new Map();         // groupId  → bounds
+  for (const g of board.groups) {
+    const ps = placeScreens(g);
+    ps.forEach(p => placed.set(p.id, p));
+    groupBB.set(g.id, boundsOf(ps) || { x0: g.origin.x, y0: g.origin.y, x1: g.origin.x + 1, y1: g.origin.y + 1 });
+  }
+  const boardBB = {
+    x0: Math.min(...[...groupBB.values()].map(b => b.x0)),
+    y0: Math.min(...[...groupBB.values()].map(b => b.y0)),
+    x1: Math.max(...[...groupBB.values()].map(b => b.x1)),
+    y1: Math.max(...[...groupBB.values()].map(b => b.y1)),
+  };
+
+  /* ── DOM ─────────────────────────────────────────────────────────────── */
+  mount.innerHTML = `
+    <div id="stage"><div id="grid"></div><div id="world"></div></div>
+    <div id="grain"></div><div id="vignette"></div>
+    <svg id="leaders"></svg><div id="notes"></div>
+    <div id="mark"><s>◆</s> &nbsp;<span></span></div>
+    <div id="caption"><span class="g"><em></em><span></span></span>
+      <span class="k"></span><div class="t"></div><div class="r"></div></div>
+    <div id="dock" class="chip">frame this screen <em>↵</em></div>
+    <div id="nextg" class="chip"></div>
+    <div id="hud">
+      <div id="gchip" title="Switch group (⌘K)"><em></em><b></b><s></s></div>
+      <div class="sep"></div>
+      <button id="prev" title="Previous step (←)">←</button>
+      <div id="dots"></div>
+      <button id="next" title="Next step (→)">→</button>
+      <div class="sep"></div>
+      <button id="back" title="Back (⌘[)">↩</button>
+      <button id="fwd" title="Forward (⌘])">↪</button>
+      <div class="sep"></div>
+      <button id="fitg" title="Fit group (G)">group</button>
+      <button id="fit" title="Fit board (F)">all</button>
+      <button id="find">⌘K</button>
+    </div>
+    <div id="help">
+      <b>← →</b> step &nbsp;·&nbsp; <b>⌘1…9</b> group<br>
+      <b>⌘K</b> find &nbsp;·&nbsp; <b>G</b> fit group &nbsp;·&nbsp; <b>F</b> fit board<br>
+      <b>⌘[ ⌘]</b> back / forward
+    </div>
+    <div id="scrim"></div>
+    <div id="pal">
+      <div id="pal-in"><s>⌘K</s>
+        <input id="pal-q" placeholder="Jump to a group or a screen…" spellcheck="false" autocomplete="off">
+        <kbd>esc</kbd></div>
+      <div id="pal-list"></div>
+      <div id="pal-foot"><span><b>↑↓</b> browse</span><span><b>↵</b> fly there</span><span><b>esc</b> back</span></div>
+    </div>`;
+
+  const $ = s => mount.querySelector(s);
+  const stage = $('#stage'), world = $('#world'), gridEl = $('#grid');
+  const leaders = $('#leaders'), notesLayer = $('#notes'), caption = $('#caption');
+  const capG = $('#caption .g span'), capK = $('#caption .k'), capT = $('#caption .t');
+  const dotsEl = $('#dots'), gchip = $('#gchip'), dockChip = $('#dock'), nextgChip = $('#nextg');
+  const backBtn = $('#back'), fwdBtn = $('#fwd'), prevBtn = $('#prev'), nextBtn = $('#next');
+  const scrim = $('#scrim'), pal = $('#pal'), palQ = $('#pal-q'), palList = $('#pal-list');
+  $('#mark span').textContent = board.title;
+
+  const GPAD = 190;
+  const plateEl = new Map(), frameEl = new Map();
+  for (const g of board.groups) {
+    const bb = groupBB.get(g.id);
+    const f = document.createElement('div');
+    f.className = 'gframe';
+    f.dataset.group = g.id;
+    f.style.cssText = `left:${bb.x0 - GPAD}px;top:${bb.y0 - GPAD}px;
+      width:${bb.x1 - bb.x0 + GPAD * 2}px;height:${bb.y1 - bb.y0 + GPAD * 2}px;
+      background:${hexA(g.color, .045)};box-shadow:inset 0 0 0 2px ${hexA(g.color, .22)}`;
+    f.innerHTML = `<div class="gtitle" style="color:${g.color}">
+      <span class="nm">${g.title}</span><span class="ct">${g.steps.length} steps</span></div>`;
+    world.appendChild(f);
+    frameEl.set(g.id, f);
+
+    g.screens.forEach((s, i) => {
+      const p = placed.get(s.id);
+      const d = document.createElement('div');
+      d.className = 'plate';
+      d.dataset.screen = s.id;
+      d.dataset.group = g.id;
+      d.style.cssText = `left:${p.x}px;top:${p.y}px;width:${p.w}px;height:${p.h}px`;
+      // assigned as a property, never interpolated into cssText, so a colour
+      // from the document can never break out into other declarations
+      d.style.backgroundColor = screenBackground(board, s);
+      d.innerHTML =
+        `<div class="plate-tag"><span class="idx" style="color:${g.color}">${String(i + 1).padStart(2, '0')}</span>
+          <span class="nm">${s.name}</span><span class="rule"></span></div>
+         <img src="${srcOf(s.src)}" alt="${s.name}" draggable="false" loading="eager"
+              style="${cropStyle(s)}">`;
+      world.appendChild(d);
+      plateEl.set(s.id, d);
+      d.addEventListener('click', () => {
+        if (cam.z < fitOf(p, safeBox(vp(), 'right', false)) * DOCK_MIN) dock(s.id);
+      });
+    });
+  }
+
+  /* ── camera ──────────────────────────────────────────────────────────── */
+  const vp = () => ({ w: window.innerWidth, h: window.innerHeight });
+  let cam = { x: 0, y: 0, z: 0.1 }, anim = null;
+  let ref = { groupId: board.groups[0]?.id, stepId: board.groups[0]?.steps[0]?.id };
+  let activeGutter = 'right', live = [], liveKey = null, dockable = null;
+
+  /** Durations come from CSS so JS and the stylesheet can never disagree. */
+  const cssMs = (name, fallback) =>
+    parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || fallback;
+  const flyMs = () => cssMs('--fly', 1050);
+  const noteOutMs = () => cssMs('--note-out', 180);
+
+  function render() {
+    const v = vp();
+    world.style.transform =
+      `translate(${v.w / 2}px,${v.h / 2}px) scale(${cam.z}) translate(${-cam.x}px,${-cam.y}px)`;
+    gridEl.style.backgroundPosition = `${-cam.x * cam.z}px ${-cam.y * cam.z}px`;
+    gridEl.style.opacity = Math.min(1, .35 + cam.z * 1.4);
+    document.body.classList.toggle('close', cam.z > 0.42);
+    layoutNotes();
+  }
+  function flyTo(t, dur = flyMs(), after) {
+    cancelAnimationFrame(anim);
+    if (dur <= 2) { cam = { ...t }; render(); after && after(); return; }
+    const f = { ...cam }, t0 = performance.now();
+    const ez = k => k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    (function tick(now) {
+      const k = Math.min(1, (now - t0) / dur), e = ez(k);
+      cam.x = f.x + (t.x - f.x) * e;
+      cam.y = f.y + (t.y - f.y) * e;
+      cam.z = Math.exp(Math.log(f.z) + (Math.log(t.z) - Math.log(f.z)) * e);
+      render();
+      if (k < 1) anim = requestAnimationFrame(tick); else after && after();
+    })(performance.now());
+  }
+  const camForScreen = (screenId, gutter, hasNotes) =>
+    camFor(placed.get(screenId), safeBox(vp(), gutter, hasNotes), vp());
+  const groupCam = gid => camForBox(groupBB.get(gid), vp(), 700);
+  const boardCam = () => camForBox(boardBB, vp(), 900);
+
+  /* ── annotations ─────────────────────────────────────────────────────── */
+  function clearNotes() {
+    const ms = noteOutMs();
+    for (const n of live) {
+      n.el.classList.add('out');
+      const { el, path, dot, ring } = n;
+      const drop = () => { el.remove(); path.remove(); dot.remove(); ring.remove(); };
+      // leaders and rings point at the old screenshot, so they must go at once —
+      // only the note itself gets to fade
+      path.remove(); dot.remove(); ring.remove();
+      ms <= 2 ? el.remove() : setTimeout(drop, ms);
+    }
+    live = []; liveKey = null;
+  }
+  function showNotes(step, key) {
+    if (liveKey === key || !step.notes.length) return;
+    clearNotes();
+    liveKey = key;
+    activeGutter = step.gutter;
+    step.notes.forEach((n, i) => {
+      const delay = `${i * 170}ms`;
+      const el = document.createElement('div');
+      el.className = 'note';
+      el.dataset.note = n.id;
+      el.style.setProperty('--d', delay);
+      el.innerHTML = `<span class="n">Note ${String(i + 1).padStart(2, '0')}</span>
+        <div class="x">${richText(n.text)}</div>`;
+      notesLayer.appendChild(el);
+      const ring = document.createElement('div');
+      ring.className = 'target';
+      ring.style.setProperty('--d', delay);
+      document.body.appendChild(ring);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.style.setProperty('--d', delay);
+      leaders.appendChild(path);
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('r', '3.5');
+      dot.style.setProperty('--d', delay);
+      leaders.appendChild(dot);
+      live.push({ id: n.id, rect: n.rect, screen: step.screen, el, ring, path, dot });
+    });
+    layoutNotes(true);
+  }
+  function layoutNotes(first) {
+    if (!live.length) return;
+    const plate = plateEl.get(live[0].screen);
+    if (!plate) return;
+    const pr = plate.getBoundingClientRect();
+    const capBox = caption.classList.contains('centered') ? null : caption.getBoundingClientRect();
+
+    const out = computeNoteLayout({
+      notes: live.map(n => ({
+        id: n.id,
+        height: n.el.offsetHeight,
+        hotspot: hotspotToViewport(n.rect, pr),
+      })),
+      viewport: vp(),
+      gutter: activeGutter,
+      captionBottom: capBox ? capBox.bottom : null,
+    });
+
+    for (const pos of out) {
+      const n = live.find(x => x.id === pos.id);
+      n.el.style.left = `${pos.x}px`;
+      n.el.style.top = `${pos.y}px`;
+      const hs = hotspotToViewport(n.rect, pr);
+      // assign properties individually: `cssText +=` runs every frame and
+      // concatenates declarations into each other, corrupting them
+      n.ring.style.left = `${hs.left - 6}px`;
+      n.ring.style.top = `${hs.top - 6}px`;
+      n.ring.style.width = `${hs.width + 12}px`;
+      n.ring.style.height = `${hs.height + 12}px`;
+      n.path.setAttribute('d', leaderPath(pos.leader));
+      n.dot.setAttribute('cx', pos.dot.x);
+      n.dot.setAttribute('cy', pos.dot.y);
+      if (first) n.path.style.setProperty('--len', n.path.getTotalLength());
+    }
+  }
+  function depth(screenId, groupId) {
+    for (const [id, el] of plateEl) {
+      const g = el.dataset.group;
+      el.classList.toggle('near', !!screenId && id !== screenId && g === groupId);
+      el.classList.toggle('far', !!groupId && g !== groupId);
+    }
+    for (const [id, el] of frameEl) el.classList.toggle('away', !!groupId && id !== groupId);
+  }
+
+  /* ── history ─────────────────────────────────────────────────────────── */
+  const history = createHistory();
+  let histLock = false;
+  const histUI = () => {
+    backBtn.disabled = !history.canBack();
+    fwdBtn.disabled = !history.canForward();
+  };
+  function histGo(d) {
+    const e = d < 0 ? history.back() : history.forward();
+    if (!e) return;
+    histLock = true;
+    if (e.kind === 'board') fitBoard();
+    else goto(e.groupId, e.stepId);
+    histLock = false;
+    histUI();
+  }
+
+  /* ── steps ───────────────────────────────────────────────────────────── */
+  function applyAccent(g) {
+    const r = document.documentElement.style;
+    r.setProperty('--accent', g.color);
+    r.setProperty('--accent-dim', hexA(g.color, .42));
+    r.setProperty('--accent-soft', hexA(g.color, .34));
+    r.setProperty('--note-idx', shade(g.color, -.42));
+  }
+  function paintCaption(g, step, si) {
+    capG.textContent = g.title;
+    capK.textContent = step.screen == null
+      ? `Overview · ${g.steps.length} steps`
+      : `Step ${String(si + 1).padStart(2, '0')} — ${step.kicker}`;
+    capT.innerHTML = richText(step.caption);
+    caption.classList.toggle('centered', step.screen == null);
+    if (step.screen != null) {
+      caption.style.left = `${step.gutter === 'right' ? vp().w - NOTE_W - MARGIN : MARGIN}px`;
+    }
+    for (const n of [capG.parentNode, capK, capT]) {
+      n.style.animation = 'none'; void n.offsetWidth; n.style.animation = '';
+    }
+  }
+  function paintHud(g, si) {
+    gchip.querySelector('b').textContent = g.title;
+    gchip.querySelector('s').textContent = `${board.groups.indexOf(g) + 1}/${board.groups.length}`;
+    dotsEl.innerHTML = '';
+    g.steps.forEach((st, j) => {
+      const b = document.createElement('i');
+      b.className = j === si ? 'on' : (j < si ? 'past' : '');
+      b.title = st.kicker || 'overview';
+      b.onclick = () => goto(g.id, st.id);
+      dotsEl.appendChild(b);
+    });
+    prevBtn.disabled = si <= 0;
+    nextBtn.disabled = si >= g.steps.length - 1;
+    const gi = board.groups.indexOf(g);
+    const ng = board.groups[(gi + 1) % board.groups.length];
+    if (si >= g.steps.length - 1 && board.groups.length > 1) {
+      nextgChip.innerHTML =
+        `<i style="background:${ng.color}"></i>next group · ${ng.title} <em>⇥</em>`;
+      nextgChip.classList.add('on');
+    } else nextgChip.classList.remove('on');
+  }
+
+  function goto(groupId, stepId) {
+    const r = resolveStep(board, groupId, stepId) || (() => {
+      const fixed = reconcileRef(board, { groupId, stepId });
+      return fixed && resolveStep(board, fixed.groupId, fixed.stepId);
+    })();
+    if (!r) return;
+    const { group, step, si } = r;
+    ref = { groupId: group.id, stepId: step.id };
+    if (!histLock) { history.push({ kind: 'step', ...ref }); histUI(); }
+
+    applyAccent(group);
+    paintCaption(group, step, si);
+    paintHud(group, si);
+    $('#help').classList.toggle('dim', history.size() > 1);
+    clearNotes(); setDockable(null); caption.classList.remove('fade');
+
+    if (step.screen == null) { depth(null, group.id); flyTo(groupCam(group.id)); return; }
+    depth(step.screen, group.id);
+    flyTo(camForScreen(step.screen, step.gutter, step.notes.length > 0), flyMs(),
+      () => showNotes(step, `${group.id}:${step.id}`));
+  }
+  function gotoGroup(gi) {
+    const g = board.groups[(gi + board.groups.length) % board.groups.length];
+    if (g?.steps.length) goto(g.id, g.steps[0].id);
+  }
+  function stepBy(d) {
+    const r = resolveStep(board, ref.groupId, ref.stepId);
+    if (!r) return;
+    const next = r.si + d;
+    if (next < 0 || next >= r.group.steps.length) return;   // never cross a group edge
+    goto(r.group.id, r.group.steps[next].id);
+  }
+  function fitBoard() {
+    if (!histLock) { history.push({ kind: 'board' }); histUI(); }
+    clearNotes(); depth(null, null); setDockable(null);
+    caption.classList.add('fade');
+    flyTo(boardCam(), flyMs());
+  }
+  function fitGroup() {
+    clearNotes(); depth(null, ref.groupId); setDockable(null);
+    caption.classList.add('fade');
+    flyTo(groupCam(ref.groupId), flyMs());
+  }
+
+  /* ── free flight ─────────────────────────────────────────────────────── */
+  function nearest() {
+    let best = null, bestR = 0;
+    const v = vp();
+    for (const [id, el] of plateEl) {
+      const r = el.getBoundingClientRect();
+      if (!isCentred(r, v)) continue;
+      const ratio = framingRatio(cam.z, placed.get(id), v);
+      if (ratio > bestR) { bestR = ratio; best = id; }
+    }
+    return bestR > DOCK_MIN ? { id: best, ratio: bestR } : null;
+  }
+  const setDockable = id => { dockable = id; dockChip.classList.toggle('on', !!id); };
+  function dock(screenId) {
+    setDockable(null);
+    for (const g of board.groups) {
+      if (!g.screens.some(s => s.id === screenId)) continue;
+      const st = g.steps.find(s => s.screen === screenId) || g.steps[0];
+      if (st) goto(g.id, st.id);
+      return;
+    }
+  }
+  function settle() {
+    if (drag) return;
+    const n = nearest();
+    if (!n) { clearNotes(); depth(null, null); setDockable(null); return; }
+    if (n.ratio > DOCK_MAX) { clearNotes(); setDockable(n.id); return; }
+    setDockable(null);
+    const cur = resolveStep(board, ref.groupId, ref.stepId);
+    if (cur && cur.step.screen === n.id && liveKey === `${ref.groupId}:${ref.stepId}`) return;
+    dock(n.id);
+  }
+
+  /* ── ⌘K ──────────────────────────────────────────────────────────────── */
+  let palOpen = false, palSel = 0, palRows = [];
+  const groupOf = id => board.groups.find(g => g.id === id);
+  const screenOf = id => { for (const g of board.groups) { const s = g.screens.find(x => x.id === id); if (s) return s; } };
+
+  function miniMap(screenId, groupId) {
+    const W = boardBB.x1 - boardBB.x0, H = boardBB.y1 - boardBB.y0;
+    const body = groupId
+      ? board.groups.map(g => {
+          const bb = groupBB.get(g.id);
+          return `<rect class="${g.id === groupId ? 'grp' : ''}" x="${bb.x0 - boardBB.x0}" y="${bb.y0 - boardBB.y0}"
+            width="${bb.x1 - bb.x0}" height="${bb.y1 - bb.y0}" rx="60"
+            ${g.id === groupId ? 'fill="currentColor" fill-opacity=".28"' : ''}/>`;
+        }).join('')
+      : [...placed.entries()].map(([id, p]) =>
+          `<rect class="${id === screenId ? 'me' : ''}" x="${p.x - boardBB.x0}" y="${p.y - boardBB.y0}"
+            width="${p.w}" height="${p.h}" rx="30"/>`).join('');
+    return `<svg class="map" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+  }
+  function rowHtml(r, i) {
+    const sel = i === palSel ? 'sel' : '';
+    if (r.kind === 'group') {
+      const g = groupOf(r.id);
+      return `<div class="res ${sel}" data-i="${i}" style="color:${g.color}">${miniMap(null, g.id)}
+        <div class="bd"><div class="nm">${g.title}</div><div class="cx">${r.why || ''}</div></div>
+        <div class="gp"><em></em>${g.steps.length} steps</div></div>`;
+    }
+    const g = groupOf(r.groupId), s = screenOf(r.id);
+    return `<div class="res ${sel}" data-i="${i}" style="color:${g.color}">${miniMap(r.id, null)}
+      <div class="bd"><div class="nm">${s.name}</div><div class="cx">${r.why || ''}</div></div>
+      <div class="gp"><em></em>${g.title}</div></div>`;
+  }
+  function palRender() {
+    const q = palQ.value.trim();
+    palRows = [];
+    let html = '';
+    if (!q) {
+      html += `<div class="phead">Jump to group</div>`;
+      board.groups.forEach(g => palRows.push({ kind: 'group', id: g.id, why: g.blurb }));
+      html += palRows.map(rowHtml).join('');
+      const cur = resolveStep(board, ref.groupId, ref.stepId);
+      const rel = cur?.step.screen ? relatedScreens(board, cur.step.screen) : [];
+      if (rel.length) {
+        const g = groupOf(ref.groupId);
+        html += `<div class="phead">Related to <b style="color:${g.color}">${screenOf(cur.step.screen).name}</b></div>`;
+        const off = palRows.length;
+        rel.forEach(r => palRows.push(r));
+        html += rel.map((r, i) => rowHtml(r, off + i)).join('');
+      }
+    } else {
+      const { groups, screens } = searchBoard(corpus, q);
+      if (groups.length) {
+        html += `<div class="phead">Groups</div>`;
+        groups.forEach(r => palRows.push(r));
+        html += groups.map((r, i) => rowHtml(r, i)).join('');
+      }
+      if (screens.length) {
+        html += `<div class="phead">Screens</div>`;
+        const off = palRows.length;
+        screens.forEach(r => palRows.push(r));
+        html += screens.map((r, i) => rowHtml(r, off + i)).join('');
+      }
+      if (!palRows.length) html = `<div id="pal-empty">Nothing on the board matches that.</div>`;
+    }
+    palList.innerHTML = html;
+    palSel = Math.min(palSel, Math.max(0, palRows.length - 1));
+    palList.querySelectorAll('.res').forEach(row => {
+      row.onclick = () => { palSel = +row.dataset.i; palGo(); };
+      row.onmouseenter = () => { palSel = +row.dataset.i; markSel(); };
+    });
+    markSel();
+  }
+  const markSel = () =>
+    palList.querySelectorAll('.res').forEach(r => r.classList.toggle('sel', +r.dataset.i === palSel));
+  function palShow() { palOpen = true; palQ.value = ''; palSel = 0; palRender(); scrim.classList.add('on'); pal.classList.add('on'); palQ.focus(); }
+  function palHide() { palOpen = false; scrim.classList.remove('on'); pal.classList.remove('on'); palQ.blur(); }
+  function palMove(d) {
+    if (!palRows.length) return;
+    palSel = (palSel + d + palRows.length) % palRows.length;
+    markSel();
+    palList.querySelector(`.res[data-i="${palSel}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+  function palGo() {
+    const r = palRows[palSel];
+    if (!r) return;
+    palHide();
+    if (r.kind === 'group') gotoGroup(board.groups.findIndex(g => g.id === r.id));
+    else dock(r.id);
+  }
+
+  /* ── input ───────────────────────────────────────────────────────────── */
+  let drag = null, freeTimer = null;
+  function freeMode() {
+    caption.classList.add('fade');
+    if (live.length) clearNotes();
+    clearTimeout(freeTimer);
+    freeTimer = setTimeout(settle, 300);
+  }
+  stage.addEventListener('pointerdown', e => {
+    if (e.button === 3) return histGo(-1);
+    if (e.button === 4) return histGo(1);
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y };
+    stage.classList.add('dragging');
+    try { stage.setPointerCapture(e.pointerId); } catch { /* stray pointer must not kill panning */ }
+  });
+  stage.addEventListener('pointermove', e => {
+    if (!drag) return;
+    cancelAnimationFrame(anim);
+    cam.x = drag.cx - (e.clientX - drag.x) / cam.z;
+    cam.y = drag.cy - (e.clientY - drag.y) / cam.z;
+    render(); freeMode();
+  });
+  window.addEventListener('pointerup', () => {
+    const was = drag; drag = null;
+    stage.classList.remove('dragging');
+    if (was) freeMode();
+  });
+  stage.addEventListener('wheel', e => {
+    e.preventDefault();
+    cancelAnimationFrame(anim);
+    const nz = Math.max(.03, Math.min(2.4, cam.z * Math.exp(-e.deltaY * .0016)));
+    const v = vp();
+    const mx = e.clientX - v.w / 2, my = e.clientY - v.h / 2;
+    cam.x += mx / cam.z - mx / nz;
+    cam.y += my / cam.z - my / nz;
+    cam.z = nz;
+    render(); freeMode();
+  }, { passive: false });
+
+  function onKey(e) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault(); palOpen ? palHide() : palShow(); return;
+    }
+    if (palOpen) {
+      if (e.key === 'Escape') { e.preventDefault(); palHide(); }
+      if (e.key === 'ArrowDown') { e.preventDefault(); palMove(1); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); palMove(-1); }
+      if (e.key === 'Enter') { e.preventDefault(); palGo(); }
+      return;                                   // the palette swallows everything else
+    }
+    if ((e.metaKey || e.ctrlKey) && /^[1-9]$/.test(e.key)) {
+      const n = +e.key - 1;
+      if (n < board.groups.length) { e.preventDefault(); gotoGroup(n); }
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key === '[') { e.preventDefault(); return histGo(-1); }
+    if ((e.metaKey || e.ctrlKey) && e.key === ']') { e.preventDefault(); return histGo(1); }
+    if (e.key === 'Backspace') { e.preventDefault(); return histGo(e.shiftKey ? 1 : -1); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const gi = board.groups.findIndex(g => g.id === ref.groupId);
+      return gotoGroup(gi + (e.shiftKey ? -1 : 1));
+    }
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); return stepBy(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); return stepBy(-1); }
+    if (e.key === 'Enter' && dockable) { e.preventDefault(); return dock(dockable); }
+    if (e.key === 'g' || e.key === 'G') return fitGroup();
+    if (e.key === 'f' || e.key === 'F' || e.key === '0') return fitBoard();
+  }
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('resize', () => {
+    const r = resolveStep(board, ref.groupId, ref.stepId);
+    if (!r) return;
+    paintCaption(r.group, r.step, r.si);
+    cam = r.step.screen == null
+      ? groupCam(r.group.id)
+      : camForScreen(r.step.screen, r.step.gutter, r.step.notes.length > 0);
+    render(); layoutNotes(true);
+  });
+
+  prevBtn.onclick = () => stepBy(-1);
+  nextBtn.onclick = () => stepBy(1);
+  backBtn.onclick = () => histGo(-1);
+  fwdBtn.onclick = () => histGo(1);
+  $('#fit').onclick = fitBoard;
+  $('#fitg').onclick = fitGroup;
+  $('#find').onclick = () => palOpen ? palHide() : palShow();
+  gchip.onclick = () => palOpen ? palHide() : palShow();
+  dockChip.onclick = () => dockable && dock(dockable);
+  nextgChip.onclick = () => {
+    const gi = board.groups.findIndex(g => g.id === ref.groupId);
+    gotoGroup(gi + 1);
+  };
+  palQ.addEventListener('input', () => { palSel = 0; palRender(); });
+  scrim.addEventListener('click', palHide);
+
+  /* ── boot ────────────────────────────────────────────────────────────── */
+  const first = board.groups[0];
+  if (first) applyAccent(first);
+  cam = boardCam(); cam.z *= .86; render(); histUI();
+
+  return {
+    board,
+    start() {
+      if (first?.steps.length) goto(first.id, first.steps[0].id);
+    },
+    /* test + editor surface */
+    goto, gotoGroup, stepBy, fitBoard, fitGroup, dock, histGo,
+    get ref() { return ref; },
+    get camera() { return { ...cam }; },
+    destroy() { window.removeEventListener('keydown', onKey); mount.innerHTML = ''; },
+  };
+}
