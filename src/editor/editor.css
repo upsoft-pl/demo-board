@@ -169,13 +169,11 @@ button{cursor:pointer}
 #cropimg{position:relative;background:#0F1319;box-shadow:0 24px 70px -12px rgba(0,0,0,.75),
   0 0 0 1px rgba(255,255,255,.1);user-select:none}
 #cropimg img{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-/* four bands rather than a hole: no clip-path, no stacking surprises */
-#cropmask{position:absolute;inset:0;pointer-events:none;
-  background:
-    linear-gradient(rgba(6,8,11,.72),rgba(6,8,11,.72)) 0 0/100% var(--cy) no-repeat,
-    linear-gradient(rgba(6,8,11,.72),rgba(6,8,11,.72)) 0 calc(var(--cy) + var(--ch))/100% calc(100% - var(--cy) - var(--ch)) no-repeat,
-    linear-gradient(rgba(6,8,11,.72),rgba(6,8,11,.72)) 0 var(--cy)/var(--cx) var(--ch) no-repeat,
-    linear-gradient(rgba(6,8,11,.72),rgba(6,8,11,.72)) calc(var(--cx) + var(--cw)) var(--cy)/calc(100% - var(--cx) - var(--cw)) var(--ch) no-repeat}
+/* Four positioned bands, NOT background-position percentages: a percentage
+   background-position aligns the x% point of the image with the x% point of the
+   box, so a band placed at 75% with width 25% actually lands at 56.25%. */
+#cropmask{position:absolute;inset:0;pointer-events:none}
+#cropmask i{position:absolute;background:rgba(6,8,11,.72);display:block}
 #cropbox{position:absolute;border:2px solid var(--accent);cursor:move;
   box-shadow:0 0 0 1px rgba(0,0,0,.5)}
 #croptools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:center}

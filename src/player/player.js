@@ -97,7 +97,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   mount.innerHTML = `
     <div id="stage"><div id="grid"></div><div id="world"></div></div>
     <div id="grain"></div><div id="vignette"></div>
-    <svg id="leaders"></svg><div id="notes"></div>
+    <svg id="leaders"></svg><div id="targets"></div><div id="notes"></div>
     <div id="mark"><s>◆</s> &nbsp;<span></span></div>
     <div id="caption"><span class="g"><em></em><span></span></span>
       <span class="k"></span><div class="t"></div><div class="r"></div></div>
@@ -134,6 +134,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   const $ = s => mount.querySelector(s);
   const stage = $('#stage'), world = $('#world'), gridEl = $('#grid');
   const leaders = $('#leaders'), notesLayer = $('#notes'), caption = $('#caption');
+  const targetLayer = $('#targets');
   const capG = $('#caption .g span'), capK = $('#caption .k'), capT = $('#caption .t');
   const dotsEl = $('#dots'), gchip = $('#gchip'), dockChip = $('#dock'), nextgChip = $('#nextg');
   const backBtn = $('#back'), fwdBtn = $('#fwd'), prevBtn = $('#prev'), nextBtn = $('#next');
@@ -249,7 +250,9 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       const ring = document.createElement('div');
       ring.className = 'target';
       ring.style.setProperty('--d', delay);
-      document.body.appendChild(ring);
+      // inside the mount, never on document.body: anything parked outside the
+      // mount survives destroy() and haunts whatever replaces the player
+      targetLayer.appendChild(ring);
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.style.setProperty('--d', delay);
       leaders.appendChild(path);
@@ -644,6 +647,12 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     goto, gotoGroup, stepBy, fitBoard, fitGroup, dock, histGo,
     get ref() { return ref; },
     get camera() { return { ...cam }; },
-    destroy() { window.removeEventListener('keydown', onKey); mount.innerHTML = ''; },
+    destroy() {
+      window.removeEventListener('keydown', onKey);
+      clearNotes();                 // cancels the pending fade-out timers too
+      cancelAnimationFrame(anim);
+      clearTimeout(freeTimer);
+      mount.innerHTML = '';
+    },
   };
 }

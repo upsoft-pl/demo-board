@@ -487,6 +487,75 @@ test('preview can always be exited — by button and by Escape', async ({ page }
   await expect(page.getByTestId('mode-layout')).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('leaving preview removes every trace of the player', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('mode-annotate').click();
+  await drawNotes(page, ['leaves a ring behind?']);
+
+  await page.getByTestId('mode-preview').click();
+  await page.waitForFunction(() => document.querySelectorAll('.target').length > 0, null, { timeout: 8000 });
+  expect(await page.locator('.target').count()).toBeGreaterThan(0);
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('mode-layout')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(300);
+
+  // rings used to be parked on document.body, so destroy() could not reach them
+  const left = await page.evaluate(() => ({
+    targets: document.querySelectorAll('.target').length,
+    notes: document.querySelectorAll('.note').length,
+    leaders: document.querySelectorAll('#leaders path').length,
+    strayOnBody: [...document.body.children].filter(
+      e => e.classList.contains('target') || e.classList.contains('note')).length,
+  }));
+  expect(left, 'the player left DOM behind in the editor').toEqual(
+    { targets: 0, notes: 0, leaders: 0, strayOnBody: 0 });
+});
+
+test('the crop mask covers exactly the area outside the crop', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('mode-crop').click();
+  await expect(page.getByTestId('cropbox')).toBeVisible();
+
+  // pull the left edge in, then the right edge in — the sequence that showed
+  // a stray band on the right
+  const img = await page.locator('#cropimg').boundingBox();
+  const dragEdge = async (fromX, toX) => {
+    const cb = await page.getByTestId('cropbox').boundingBox();
+    await page.mouse.move(fromX(cb), cb.y + cb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(toX, cb.y + cb.height / 2, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+  };
+  await dragEdge(cb => cb.x, img.x + img.width * 0.2);                 // west edge in
+  await dragEdge(cb => cb.x + cb.width, img.x + img.width * 0.7);      // east edge in
+
+  const geom = await page.evaluate(() => {
+    const R = e => { const q = e.getBoundingClientRect();
+      return { l: q.left, t: q.top, r: q.right, b: q.bottom, w: q.width, h: q.height }; };
+    const box = R(document.getElementById('cropbox'));
+    const host = R(document.getElementById('cropimg'));
+    const bands = [...document.querySelectorAll('#cropmask i')].map(R);
+    const overlap = (a, c) => Math.max(0, Math.min(a.r, c.r) - Math.max(a.l, c.l))
+                            * Math.max(0, Math.min(a.b, c.b) - Math.max(a.t, c.t));
+    return {
+      bands: bands.length,
+      overCrop: bands.reduce((s, b) => s + overlap(b, box), 0),
+      covered: bands.reduce((s, b) => s + b.w * b.h, 0),
+      expected: host.w * host.h - box.w * box.h,
+      outside: bands.filter(b => b.r > host.r + 1 || b.l < host.l - 1).length,
+    };
+  });
+
+  expect(geom.bands).toBe(4);
+  expect(Math.round(geom.overCrop), 'the mask darkened part of the crop').toBeLessThan(50);
+  expect(geom.outside, 'a mask band spilled outside the image').toBe(0);
+  // the four bands should tile the complement of the crop box
+  expect(geom.covered).toBeGreaterThan(geom.expected * 0.97);
+  expect(geom.covered).toBeLessThan(geom.expected * 1.03);
+});
+
 test('Escape closes the palette before it leaves preview', async ({ page }) => {
   await boardWithScreen(page);
   await page.getByTestId('mode-preview').click();

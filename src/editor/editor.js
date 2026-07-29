@@ -990,8 +990,15 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     cropbox.style.cssText = `left:${c.x * 100}%;top:${c.y * 100}%;width:${c.w * 100}%;height:${c.h * 100}%`;
     cropbox.innerHTML = HANDLES.map(hd =>
       `<i class="hd hd-${hd}" data-handle="${hd}" data-testid="crop-${hd}"></i>`).join('');
-    $('#cropmask').style.cssText =
-      `--cx:${c.x * 100}%;--cy:${c.y * 100}%;--cw:${c.w * 100}%;--ch:${c.h * 100}%`;
+    // the complement of the crop box, as four exact bands
+    const pct = v => `${(v * 100).toFixed(4)}%`;
+    $('#cropmask').innerHTML = [
+      { left: 0, top: 0, width: 1, height: c.y },                                  // above
+      { left: 0, top: c.y + c.h, width: 1, height: 1 - (c.y + c.h) },              // below
+      { left: 0, top: c.y, width: c.x, height: c.h },                              // left
+      { left: c.x + c.w, top: c.y, width: 1 - (c.x + c.w), height: c.h },          // right
+    ].map(b => `<i style="left:${pct(b.left)};top:${pct(b.top)};` +
+               `width:${pct(Math.max(0, b.width))};height:${pct(Math.max(0, b.height))}"></i>`).join('');
 
     const eff = { w: Math.round(s.w * c.w), h: Math.round(s.h * c.h) };
     croptools.appendChild(el('div', 'croptip',
