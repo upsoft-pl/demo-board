@@ -59,6 +59,13 @@ export function addGroup(board, { title = 'New group', color, layout = 'auto' } 
 export const updateGroup = (board, groupId, patch) =>
   withGroup(board, groupId, g => { Object.assign(g, patch); });
 
+/** Move a whole group on the board. Its screens are placed relative to origin. */
+export function moveGroup(board, groupId, origin) {
+  return withGroup(board, groupId, g => {
+    g.origin = { x: Math.round(origin.x), y: Math.round(origin.y) };
+  });
+}
+
 export function reorderGroups(board, from, to) {
   const b = clone(board);
   b.groups = moveItem(b.groups, from, to);

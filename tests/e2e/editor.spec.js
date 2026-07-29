@@ -731,6 +731,75 @@ test('paste is ignored while typing so text paste still works', async ({ page })
   expect((await doc(page)).groups[0].screens).toHaveLength(1);
 });
 
+test('a group can be dragged to a new position, taking its screens', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('add-group').click();
+  await page.keyboard.press('f');
+  await page.waitForTimeout(150);
+
+  const originBefore = (await doc(page)).groups[0].origin;
+  const otherBefore = (await doc(page)).groups[1].origin;
+  const screenBefore = await page.locator('[data-testid="canvas-screen"]').boundingBox();
+
+  const handle = page.getByTestId('group-handle').first();
+  await expect(handle).toBeVisible();
+  const hb = await handle.boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + 180, hb.y + hb.height / 2 + 90, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+
+  const after = await doc(page);
+  expect(after.groups[0].origin.x).not.toBe(originBefore.x);
+  expect(after.groups[0].origin.y).not.toBe(originBefore.y);
+  expect(after.groups[1].origin, 'the other group moved too').toEqual(otherBefore);
+
+  // the screens inside moved with it
+  const screenAfter = await page.locator('[data-testid="canvas-screen"]').boundingBox();
+  expect(screenAfter.x).toBeGreaterThan(screenBefore.x);
+  expect(screenAfter.y).toBeGreaterThan(screenBefore.y);
+});
+
+test('dragging a group is one undo step, not one per pixel', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.keyboard.press('f');
+  await page.waitForTimeout(150);
+  const before = (await doc(page)).groups[0].origin;
+
+  const hb = await page.getByTestId('group-handle').first().boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + 150, hb.y + hb.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+  expect((await doc(page)).groups[0].origin.x).not.toBe(before.x);
+
+  await page.locator('#undo').click();
+  expect((await doc(page)).groups[0].origin).toEqual(before);
+});
+
+test('a cropped screenshot renders cropped in the layout view too', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.evaluate(() => window.__editor.applyCrop(
+    window.__editor.board.groups[0].screens[0].id, { x: 0.25, y: 0, w: 0.5, h: 1 }));
+  await page.waitForTimeout(120);
+
+  const g = await page.evaluate(() => {
+    const box = document.querySelector('[data-testid="canvas-screen"]');
+    const img = box.querySelector('img');
+    const b = box.getBoundingClientRect(), i = img.getBoundingClientRect();
+    return { boxAspect: b.width / b.height, imgAspect: i.width / i.height,
+             scale: i.width / b.width, clipped: getComputedStyle(box).overflow };
+  });
+  // 1280×800 cropped to half width => the plate is 640×800
+  expect(g.boxAspect).toBeCloseTo(0.8, 1);
+  // the image keeps its own 1.6 aspect and is scaled 2x, i.e. clipped not squashed
+  expect(g.imgAspect, 'the image was squashed instead of cropped').toBeCloseTo(1.6, 1);
+  expect(g.scale).toBeCloseTo(2, 1);
+  expect(g.clipped).toBe('hidden');
+});
+
 test('undo reverses the last change', async ({ page }) => {
   await newBoard(page);
   await page.getByTestId('add-group').click();

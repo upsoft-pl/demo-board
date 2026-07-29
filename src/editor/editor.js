@@ -11,7 +11,7 @@ import {
   addStep, updateStep, reorderSteps, deleteStep,
   addNote, updateNote, reorderNotes, deleteNote, normalizeRect,
   setBoardTitle, setBoardBackground, setScreenBackground, DEFAULT_COLORS,
-  applyHandle, moveRect, setScreenCrop, replaceScreenImage, moveScreenToGroup, HANDLES,
+  applyHandle, moveRect, setScreenCrop, replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
 } from '../core/edit.js';
 import { placeScreens, boundsOf, camForBox } from '../core/layout.js';
 import {
@@ -525,7 +525,13 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         height:${fr.y1 - fr.y0}px;background:${hexA(g.color, fr.empty ? .03 : .05)};
         box-shadow:inset 0 0 0 ${fr.empty ? '3px' : '2px'} ${hexA(g.color, sel.groupId === g.id ? .5 : .2)}`;
       f.style.color = g.color;                // drives currentColor on .droptarget
-      f.appendChild(el('div', 'lbl', esc(g.title))).style.color = g.color;
+      const lbl = f.appendChild(el('div', 'lbl', esc(g.title)));
+      lbl.style.color = g.color;
+      // the title is the drag handle for the whole group — grabbing the frame
+      // itself would steal panning over any large group
+      lbl.dataset.groupHandle = g.id;
+      lbl.dataset.testid = 'group-handle';
+      lbl.title = 'Drag to move this group';
       if (fr.empty) f.appendChild(el('div', 'ghint', 'drop screenshots here'));
       cworld.appendChild(f);
       for (const s of g.screens) {
@@ -538,7 +544,10 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         d.style.backgroundColor = bg;          // property, not cssText: no injection
         // a checker makes "transparent" readable as transparent while authoring
         d.classList.toggle('alpha', bg === 'transparent');
-        d.innerHTML = `<img src="${srcOf(s.src)}" alt=""><div class="cap">${esc(s.name)}</div>`;
+        // the plate box is the cropped size, so the image needs the same
+        // scale-and-offset the player applies — otherwise it just squashes
+        d.innerHTML = `<img src="${srcOf(s.src)}" alt="" style="${cropStyle(s)}">
+          <div class="cap">${esc(s.name)}</div>`;
         cworld.appendChild(d);
       }
     }
@@ -568,8 +577,17 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     paintCanvas();
   }
 
-  let cdrag = null, sdrag = null;
+  let cdrag = null, sdrag = null, gdrag = null;
   canvas.addEventListener('pointerdown', e => {
+    const handle = e.target.dataset?.groupHandle;
+    if (handle) {
+      const g = groupOf(handle);
+      select({ kind: 'group', groupId: handle });
+      gdrag = { id: handle, sx: e.clientX, sy: e.clientY,
+                ox: g.origin?.x ?? 0, oy: g.origin?.y ?? 0 };
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
+      return;
+    }
     const hitEl = e.target.closest('.cscr');
     if (hitEl) {
       const id = hitEl.dataset.screenId;
@@ -589,6 +607,25 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
   });
   canvas.addEventListener('pointermove', e => {
+    if (gdrag) {
+      const nx = gdrag.ox + (e.clientX - gdrag.sx) / cam.z;
+      const ny = gdrag.oy + (e.clientY - gdrag.sy) / cam.z;
+      const before = groupOf(gdrag.id).origin ?? { x: 0, y: 0 };
+      board = moveGroup(board, gdrag.id, { x: nx, y: ny });   // live, uncommitted
+      const dx = Math.round(nx) - before.x, dy = Math.round(ny) - before.y;
+      // shift the frame and everything inside it without a full re-render
+      const shift = node => {
+        node.style.left = `${parseFloat(node.style.left) + dx}px`;
+        node.style.top = `${parseFloat(node.style.top) + dy}px`;
+      };
+      const frame = cworld.querySelector(`.cframe[data-group="${gdrag.id}"]`);
+      if (frame) shift(frame);
+      for (const s of groupOf(gdrag.id).screens) {
+        const node = cworld.querySelector(`[data-screen-id="${s.id}"]`);
+        if (node) shift(node);
+      }
+      return;
+    }
     if (sdrag) {
       const nx = sdrag.ox + (e.clientX - sdrag.sx) / cam.z;
       const ny = sdrag.oy + (e.clientY - sdrag.sy) / cam.z;
@@ -603,8 +640,9 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     paintCanvas();
   });
   window.addEventListener('pointerup', () => {
-    if (sdrag) { const b = board; board = undo.at(-1) ?? board; commit(b); }  // one undo entry per drag
-    sdrag = null; cdrag = null;
+    // one undo entry per drag, not one per pointermove
+    if (sdrag || gdrag) { const b = board; board = undo.at(-1) ?? board; commit(b); }
+    sdrag = null; cdrag = null; gdrag = null;
     canvas.classList.remove('dragging');
   });
   canvas.addEventListener('wheel', e => {

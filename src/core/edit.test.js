@@ -6,9 +6,10 @@ import {
   addNote, updateNote, reorderNotes, deleteNote, normalizeRect,
   createBoard, setBoardTitle, setBoardBackground, setScreenBackground,
   applyHandle, moveRect, remapRect, normalizeCrop, setScreenCrop,
-  replaceScreenImage, moveScreenToGroup, HANDLES,
+  replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
 } from './edit.js';
 import { validateBoard, createIdFactory, resolveStep, effectiveSize } from './schema.js';
+import { placeScreens } from './layout.js';
 
 const idf = () => createIdFactory();
 const IMG = { src: 'images/a.png', w: 1280, h: 800 };
@@ -111,6 +112,45 @@ describe('groups', () => {
     const out = deleteGroup(b, g);
     expect(out.groups).toHaveLength(0);
     valid(out);
+  });
+});
+
+describe('moveGroup', () => {
+  it('moves the group and everything placed inside it', () => {
+    const { b, g } = seed();
+    const before = placeScreens(b.groups[0]);
+    const out = moveGroup(b, g, { x: 500, y: 300 });
+    const after = placeScreens(out.groups[0]);
+    expect(out.groups[0].origin).toEqual({ x: 500, y: 300 });
+    after.forEach((p, i) => {
+      expect(p.x - before[i].x).toBe(500);
+      expect(p.y - before[i].y).toBe(300);
+    });
+    valid(out);
+  });
+
+  it('rounds to whole units', () => {
+    const { b, g } = seed();
+    expect(moveGroup(b, g, { x: 10.6, y: -3.2 }).groups[0].origin).toEqual({ x: 11, y: -3 });
+  });
+
+  it('leaves other groups where they are', () => {
+    const { b, g, f } = seed();
+    const two = addGroup(b, { title: 'Other' }, f);
+    const other = two.groups[1].origin;
+    expect(moveGroup(two, g, { x: 9, y: 9 }).groups[1].origin).toEqual(other);
+  });
+
+  it('ignores an unknown group', () => {
+    const { b } = seed();
+    expect(moveGroup(b, 'nope', { x: 1, y: 1 })).toEqual(b);
+  });
+
+  it('does not mutate the previous document', () => {
+    const { b, g } = seed();
+    const snapshot = structuredClone(b);
+    moveGroup(b, g, { x: 700, y: 700 });
+    expect(b).toEqual(snapshot);
   });
 });
 

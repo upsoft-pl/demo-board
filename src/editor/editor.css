@@ -92,8 +92,12 @@ button{cursor:pointer}
 #canvas.dragging{cursor:grabbing}
 #cworld{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
 .cframe{position:absolute;border-radius:40px;pointer-events:none}
+/* the title is the group's drag handle — the frame itself stays click-through
+   so panning still works over a large group */
 .cframe .lbl{position:absolute;left:6px;bottom:100%;margin-bottom:22px;font-family:var(--serif);
-  font-size:96px;line-height:.9;white-space:nowrap}
+  font-size:96px;line-height:.9;white-space:nowrap;pointer-events:auto;cursor:move;
+  transition:opacity .15s}
+.cframe .lbl:hover{opacity:.75}
 /* an empty group must still be visible, or you cannot aim a drop at it */
 .cframe.empty{border-radius:40px}
 .cframe .ghint{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);
