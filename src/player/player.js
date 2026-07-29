@@ -15,6 +15,24 @@ import {
 } from '../core/schema.js';
 
 /**
+ * Parse a CSS <time> into milliseconds.
+ *
+ * Must handle both units: the minifier rewrites `1050ms` as `1.05s` in a
+ * production build, and reading that with a bare parseFloat yields 1.05 — which
+ * looked like "1ms, skip the animation" and silently disabled every camera fly
+ * on the deployed site while dev was fine.
+ */
+export function parseCssTime(raw, fallback) {
+  const s = String(raw ?? '').trim();
+  if (!s) return fallback;
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return fallback;
+  if (/ms$/i.test(s)) return n;
+  if (/s$/i.test(s)) return n * 1000;
+  return n;                                   // unitless: already milliseconds
+}
+
+/**
  * Inline style that shows only a screen's cropped region.
  * The plate box is already the cropped size, so the image is scaled up by
  * 1/crop and shifted so the wanted area lands in it.
@@ -168,7 +186,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
 
   /** Durations come from CSS so JS and the stylesheet can never disagree. */
   const cssMs = (name, fallback) =>
-    parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || fallback;
+    parseCssTime(getComputedStyle(document.documentElement).getPropertyValue(name), fallback);
   const flyMs = () => cssMs('--fly', 1050);
   const noteOutMs = () => cssMs('--note-out', 180);
 

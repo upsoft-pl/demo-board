@@ -105,6 +105,13 @@ defaults to `all`, and a duration alone gives the world container a transform
 transition, which makes `getBoundingClientRect()` return the pre-transition box.
 That bug positioned every annotation against the previous step's camera.
 
+The e2e suite runs two projects. `dev` covers behaviour against the dev server;
+`build` is a short smoke pass against `vite preview` of a real production build.
+The second exists because the CSS minifier rewrites `--fly: 1050ms` as `1.05s`,
+`parseFloat` read that as `1.05`, the player took it for "1ms — skip the
+animation", and every camera fly on the deployed site was instant while the
+whole dev suite stayed green. Durations now go through `parseCssTime`.
+
 ## Deployment
 
 `.github/workflows/pages.yml` runs both tiers and only deploys to GitHub Pages
