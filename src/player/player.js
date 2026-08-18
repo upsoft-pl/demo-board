@@ -51,6 +51,7 @@ const DOCK_MAX = 1.35;     // above this the presenter is reading detail — lea
 const GRID_TILE = 170;     // period the backdrop tiles share (170 = 5×34); grid pan wraps on it
 const GTITLE_PX = 118;     // .gtitle .nm font-size in player.css; keep the two in sync
 const LABEL_AT = 26;       // show the centred locator once the in-world title shrinks below this (px on screen)
+const THUMB_PX = 1024;     // longest side of the downscaled LOD copy; plates use it when smaller than this on screen
 
 /** Euclidean modulo — always in [0, m), unlike JS % which keeps the sign. */
 const mod = (n, m) => ((n % m) + m) % m;
@@ -151,6 +152,8 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   const GPAD = 190;
   const glabels = $('#glabels');
   const plateEl = new Map(), frameEl = new Map(), glabelEl = new Map();
+  // LOD: full-res src, generated thumbnail url, and current level per screen.
+  const fullSrc = new Map(), thumbURL = new Map(), lodIsThumb = new Map();
   for (const g of board.groups) {
     const bb = groupBB.get(g.id);
     // Screen-space locator label, centred on the group. The in-world .gtitle
@@ -190,6 +193,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
               style="${cropStyle(s)}">`;
       world.appendChild(d);
       plateEl.set(s.id, d);
+      fullSrc.set(s.id, srcOf(s.src));
       d.addEventListener('click', () => {
         if (cam.z < fitOf(p, safeBox(vp(), 'right', false)) * DOCK_MIN) dock(s.id);
       });
@@ -220,14 +224,22 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
    *
    * Removing will-change alone won't invalidate the cached raster, so the demote
    * nudges the transform into a 3D layer once to force a fresh, crisp raster.
+   *
+   * The `moving` flag also lets CSS drop the per-pixel full-screen effects
+   * (grain's mix-blend, the grid mask) while the whole scene re-composites each
+   * frame — a trace showed those saturating the GPU during pan. They come back
+   * on settle, where a still frame can afford them.
    */
   let motionTimer = null;
   function markMotion() {
     world.style.willChange = 'transform';
+    document.body.classList.add('moving');
     clearTimeout(motionTimer);
     motionTimer = setTimeout(() => {
       world.style.willChange = 'auto';
       world.style.transform += ' translateZ(0)';
+      document.body.classList.remove('moving');
+      applyLOD();                 // settled: pick the right resolution for each plate
     }, 200);
   }
 
@@ -277,6 +289,51 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       }
     }
   }
+
+  /**
+   * Level of detail. A trace showed the GPU saturated compositing ~25 full-res
+   * (2560px) textures at 2× DPR while zoomed out. Generate a downscaled copy of
+   * each screenshot once, then swap a plate to it whenever it is small on screen
+   * — which is exactly the zoomed-out overview that janks. Full res returns when
+   * you zoom back in. A hysteresis band avoids swapping back and forth at the
+   * threshold, and swaps happen only on settle (applyLOD), never mid-motion.
+   */
+  async function buildThumbs() {
+    for (const [id, plate] of plateEl) {
+      const img = plate.querySelector('img');
+      if (!img) continue;
+      try {
+        await img.decode();
+        const nw = img.naturalWidth, nh = img.naturalHeight;
+        if (!nw || !nh || Math.max(nw, nh) <= THUMB_PX) continue;   // already small enough
+        const scale = THUMB_PX / Math.max(nw, nh);
+        const c = document.createElement('canvas');
+        c.width = Math.round(nw * scale); c.height = Math.round(nh * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const blob = await new Promise(r => c.toBlob(r, 'image/webp', 0.85));
+        if (blob) thumbURL.set(id, URL.createObjectURL(blob));
+      } catch { /* cross-origin taint or decode failure: keep full res for this plate */ }
+    }
+    applyLOD();
+  }
+  function applyLOD() {
+    const dpr = window.devicePixelRatio || 1;
+    for (const [id, plate] of plateEl) {
+      if (!thumbURL.has(id)) continue;                       // no thumb (small source)
+      const p = placed.get(id);
+      const onDev = Math.max(p.w, p.h) * cam.z * dpr;        // on-screen longest side, device px
+      const cur = lodIsThumb.get(id);
+      let want = cur;
+      if (cur === undefined) want = onDev <= THUMB_PX;
+      else if (cur && onDev > THUMB_PX * 1.1) want = false;
+      else if (!cur && onDev < THUMB_PX * 0.9) want = true;
+      if (want !== cur) {
+        plate.querySelector('img').src = want ? thumbURL.get(id) : fullSrc.get(id);
+        lodIsThumb.set(id, want);
+      }
+    }
+  }
+
   function flyTo(t, dur = flyMs(), after) {
     cancelAnimationFrame(anim);
     if (dur <= 2) { cam = { ...t }; render(); after && after(); return; }
@@ -719,6 +776,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     board,
     start() {
       if (first?.steps.length) goto(first.id, first.steps[0].id);
+      buildThumbs();               // async: generate LOD copies, then applyLOD()
     },
     /* test + editor surface */
     goto, gotoGroup, stepBy, fitBoard, fitGroup, dock, histGo,
@@ -730,6 +788,8 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       cancelAnimationFrame(anim);
       clearTimeout(freeTimer);
       clearTimeout(motionTimer);
+      document.body.classList.remove('moving');
+      for (const u of thumbURL.values()) URL.revokeObjectURL(u);
       mount.innerHTML = '';
     },
   };

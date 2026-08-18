@@ -46,6 +46,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:#E8EA
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E")}
 #vignette{position:fixed;inset:0;pointer-events:none;z-index:3;
   background:radial-gradient(105% 80% at 50% 45%,transparent 42%,rgba(0,0,0,.55) 100%)}
+/* While the camera moves (body.moving, set from markMotion) the whole scene
+   re-composites every frame. A trace showed the full-screen per-pixel effects —
+   grain's backdrop blend and the grid's mask — saturating the GPU during pan,
+   so drop them in motion and restore them the moment it settles. */
+body.moving #grain{display:none}
+body.moving #grid{-webkit-mask-image:none;mask-image:none}
 /* will-change is toggled from JS (markMotion): promoted only while the camera
    moves, dropped at rest so the settled frame re-rasterises crisp instead of
    bilinear-downsampling full-res screenshots into aliasing. */
