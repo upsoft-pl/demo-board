@@ -59,6 +59,13 @@ body.moving #grid{-webkit-mask-image:none;mask-image:none}
 /* Screen-space group locators: sit above the world, fixed readable size, faded
    in from JS (layoutLabels) once the in-world titles get too small. */
 #glabels{position:fixed;inset:0;pointer-events:none;z-index:5}
+/* Debug FPS overlay — toggle with P or ?fps=1. Its own layer, tiny, so it
+   barely perturbs what it measures. */
+#fps{position:fixed;left:12px;top:12px;z-index:100;pointer-events:none;display:none;
+  font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:#8FE9B0;
+  background:rgba(5,7,10,.72);border:1px solid rgba(255,255,255,.1);border-radius:7px;
+  padding:5px 9px;text-shadow:0 1px 2px #000}
+#fps.on{display:block}
 .glabel{position:absolute;left:0;top:0;white-space:nowrap;
   font-family:var(--serif);font-size:72px;line-height:1;letter-spacing:.01em;
   text-shadow:0 2px 3px rgba(0,0,0,.9),0 8px 34px rgba(0,0,0,.85);

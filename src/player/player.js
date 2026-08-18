@@ -105,6 +105,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     <div id="stage"><div id="grid"></div><div id="world"></div></div>
     <div id="grain"></div><div id="vignette"></div>
     <div id="glabels"></div>
+    <div id="fps"></div>
     <svg id="leaders"></svg><div id="targets"></div><div id="notes"></div>
     <div id="mark"><s>◆</s> &nbsp;<span></span></div>
     <div id="caption"><span class="g"><em></em><span></span></span>
@@ -670,6 +671,35 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     else dock(r.id);
   }
 
+  /* ── fps overlay (toggle: P, or ?fps=1) ─────────────────────────────────
+   * A debug HUD for eyeballing pan/zoom cost on real boards. Frame time comes
+   * from rAF deltas; under sustained GPU load Chrome throttles rAF to the real
+   * presented rate, so this tracks it. "worst" is the slowest frame in the last
+   * second — it exposes stutter that a smoothed average hides. */
+  const fpsEl = $('#fps');
+  let fpsRaf = 0, fpsLast = 0, fpsPaint = 0, fpsFrames = [];
+  function fpsTick(now) {
+    if (fpsLast) fpsFrames.push(now - fpsLast);
+    fpsLast = now;
+    let acc = 0, i = fpsFrames.length;
+    while (i > 0 && acc < 1000) acc += fpsFrames[--i];   // keep ~1s of history
+    if (i > 0) fpsFrames = fpsFrames.slice(i);
+    if (now - fpsPaint > 250 && fpsFrames.length) {
+      fpsPaint = now;
+      const avg = fpsFrames.reduce((a, b) => a + b, 0) / fpsFrames.length;
+      fpsEl.textContent = `${Math.round(1000 / avg)} fps · worst ${Math.max(...fpsFrames).toFixed(0)}ms`;
+    }
+    fpsRaf = requestAnimationFrame(fpsTick);
+  }
+  function fpsToggle(on) {
+    const show = on ?? !fpsEl.classList.contains('on');
+    fpsEl.classList.toggle('on', show);
+    cancelAnimationFrame(fpsRaf);
+    fpsFrames = []; fpsLast = 0; fpsPaint = 0;
+    if (show) fpsRaf = requestAnimationFrame(fpsTick);
+  }
+  if (new URLSearchParams(location.search).has('fps')) fpsToggle(true);
+
   /* ── input ───────────────────────────────────────────────────────────── */
   let drag = null, freeTimer = null;
   function freeMode() {
@@ -739,6 +769,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     if (e.key === 'Enter' && dockable) { e.preventDefault(); return dock(dockable); }
     if (e.key === 'g' || e.key === 'G') return fitGroup();
     if (e.key === 'f' || e.key === 'F' || e.key === '0') return fitBoard();
+    if (e.key === 'p' || e.key === 'P') return fpsToggle();
   }
   window.addEventListener('keydown', onKey);
   window.addEventListener('resize', () => {
@@ -788,6 +819,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       cancelAnimationFrame(anim);
       clearTimeout(freeTimer);
       clearTimeout(motionTimer);
+      cancelAnimationFrame(fpsRaf);
       document.body.classList.remove('moving');
       for (const u of thumbURL.values()) URL.revokeObjectURL(u);
       mount.innerHTML = '';
