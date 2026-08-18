@@ -1145,6 +1145,12 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     annot.classList.toggle('on', m === 'annotate');
     cropview.classList.toggle('on', m === 'crop');
     $('#body').classList.toggle('wide', m === 'preview');
+    // Preview hides the chrome rather than letting the position:fixed player
+    // paint over it — a paint-order gamble that leaked the toolbar and rail
+    // through during zoom animations. The exit button lives inside
+    // #previewHost, so the way out survives.
+    $('#top').classList.toggle('hidden', m === 'preview');
+    $('#outline').classList.toggle('hidden', m === 'preview');
     const prev = $('#previewHost');
     if (prev) prev.classList.toggle('hidden', m !== 'preview');
     if (m === 'preview') renderPreview();

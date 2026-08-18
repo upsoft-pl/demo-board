@@ -462,6 +462,28 @@ test('a screen used by no step says so', async ({ page }) => {
   await expect(page.locator('#inspector')).toContainText(/will not appear in the demo/i);
 });
 
+test('preview hides the editor chrome instead of covering it', async ({ page }) => {
+  await boardWithScreen(page);
+
+  // Baseline: chrome is present in layout mode.
+  await expect(page.locator('#top')).toBeVisible();
+  await expect(page.locator('#outline')).toBeVisible();
+
+  // In preview the toolbar and the left rail must be out of the render tree —
+  // covering them with the position:fixed player is a paint-order gamble that
+  // leaks the chrome through during zoom animations.
+  await page.getByTestId('mode-preview').click();
+  await page.waitForFunction(() => !!window.__player);
+  await expect(page.locator('#top')).toBeHidden();
+  await expect(page.locator('#outline')).toBeHidden();
+
+  // Leaving preview restores the chrome.
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('mode-layout')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#top')).toBeVisible();
+  await expect(page.locator('#outline')).toBeVisible();
+});
+
 test('preview can always be exited — by button and by Escape', async ({ page }) => {
   await boardWithScreen(page);
 
