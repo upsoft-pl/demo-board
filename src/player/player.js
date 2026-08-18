@@ -282,10 +282,12 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       // the two never stack. (body.close already hides it at the zoomed-in end.)
       frameEl.get(id).classList.toggle('labelled', on);
       if (on) {
+        // Measure once, not every frame: reading offsetWidth mid-render forces a
+        // synchronous layout. Text and font are fixed, so the size never changes.
+        if (!lab._halfW) { lab._halfW = lab.offsetWidth / 2; lab._halfH = lab.offsetHeight / 2; }
         // Keep the whole label on screen — an edge group would otherwise clip.
-        const hw = lab.offsetWidth / 2, hh = lab.offsetHeight / 2;
-        const x = Math.max(hw + 12, Math.min(sx, v.w - hw - 12));
-        const y = Math.max(hh + 12, Math.min(sy, v.h - hh - 12));
+        const x = Math.max(lab._halfW + 12, Math.min(sx, v.w - lab._halfW - 12));
+        const y = Math.max(lab._halfH + 12, Math.min(sy, v.h - lab._halfH - 12));
         lab.style.transform = `translate(${x}px,${y}px) translate(-50%,-50%)`;
       }
     }

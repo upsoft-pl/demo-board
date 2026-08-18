@@ -69,7 +69,11 @@ body.moving #grid{-webkit-mask-image:none;mask-image:none}
 .glabel{position:absolute;left:0;top:0;white-space:nowrap;
   font-family:var(--serif);font-size:72px;line-height:1;letter-spacing:.01em;
   text-shadow:0 2px 3px rgba(0,0,0,.9),0 8px 34px rgba(0,0,0,.85);
-  opacity:0;transition:opacity .2s ease}
+  opacity:0;transition:opacity .2s ease;
+  /* own layer: labels are repositioned by transform every frame while panning;
+     without promotion the 34px-blur text-shadow re-rasterises each frame and
+     tanks the overview to ~22fps. Promoted, the shadow rasters once. */
+  will-change:transform}
 .glabel.on{opacity:1}
 
 .gframe{position:absolute;border-radius:52px;pointer-events:none;
