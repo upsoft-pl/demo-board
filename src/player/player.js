@@ -48,6 +48,10 @@ import { buildCorpus, searchBoard, relatedScreens } from '../core/search.js';
 
 const DOCK_MIN = 0.5;      // below this the camera isn't looking at anything
 const DOCK_MAX = 1.35;     // above this the presenter is reading detail — leave them alone
+const GRID_TILE = 170;     // period the backdrop tiles share (170 = 5×34); grid pan wraps on it
+
+/** Euclidean modulo — always in [0, m), unlike JS % which keeps the sign. */
+const mod = (n, m) => ((n % m) + m) % m;
 
 const hexA = (hex, a) => {
   const n = parseInt(hex.slice(1), 16);
@@ -195,7 +199,14 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     const v = vp();
     world.style.transform =
       `translate(${v.w / 2}px,${v.h / 2}px) scale(${cam.z}) translate(${-cam.x}px,${-cam.y}px)`;
-    gridEl.style.backgroundPosition = `${-cam.x * cam.z}px ${-cam.y * cam.z}px`;
+    // Pan the grid with a compositor-only transform, never background-position:
+    // shifting the background repaints the whole fixed multi-gradient surface
+    // every frame, which drops frames and flickers when zoomed out. The tiles
+    // share a 170px period (170 = 5×34), so wrapping the offset modulo 170 keeps
+    // the pattern seamless while the element never travels more than one tile —
+    // safely inside its inset:-200px slack.
+    const gx = mod(-cam.x * cam.z, GRID_TILE), gy = mod(-cam.y * cam.z, GRID_TILE);
+    gridEl.style.transform = `translate(${gx}px,${gy}px)`;
     gridEl.style.opacity = Math.min(1, .35 + cam.z * 1.4);
     document.body.classList.toggle('close', cam.z > 0.42);
     layoutNotes();

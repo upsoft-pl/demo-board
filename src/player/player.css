@@ -34,7 +34,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:#E8EA
 #stage{position:fixed;inset:0;overflow:hidden;cursor:grab;
   background:radial-gradient(120% 90% at 50% 8%,#141A24 0%,#0A0D12 58%,#06080B 100%)}
 #stage.dragging{cursor:grabbing}
-#grid{position:fixed;inset:-200px;pointer-events:none;z-index:1;
+#grid{position:fixed;inset:-200px;pointer-events:none;z-index:1;will-change:transform;
   background-image:
     linear-gradient(rgba(255,255,255,.030) 1px,transparent 1px),
     linear-gradient(90deg,rgba(255,255,255,.030) 1px,transparent 1px),
