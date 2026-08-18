@@ -46,7 +46,18 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:#E8EA
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E")}
 #vignette{position:fixed;inset:0;pointer-events:none;z-index:3;
   background:radial-gradient(105% 80% at 50% 45%,transparent 42%,rgba(0,0,0,.55) 100%)}
-#world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;z-index:4}
+/* will-change is toggled from JS (markMotion): promoted only while the camera
+   moves, dropped at rest so the settled frame re-rasterises crisp instead of
+   bilinear-downsampling full-res screenshots into aliasing. */
+#world{position:absolute;top:0;left:0;transform-origin:0 0;z-index:4}
+/* Screen-space group locators: sit above the world, fixed readable size, faded
+   in from JS (layoutLabels) once the in-world titles get too small. */
+#glabels{position:fixed;inset:0;pointer-events:none;z-index:5}
+.glabel{position:absolute;left:0;top:0;white-space:nowrap;
+  font-family:var(--serif);font-size:72px;line-height:1;letter-spacing:.01em;
+  text-shadow:0 2px 3px rgba(0,0,0,.9),0 8px 34px rgba(0,0,0,.85);
+  opacity:0;transition:opacity .2s ease}
+.glabel.on{opacity:1}
 
 .gframe{position:absolute;border-radius:52px;pointer-events:none;
   transition:opacity .55s cubic-bezier(.2,.6,.2,1)}
@@ -54,6 +65,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--ink);color:#E8EA
 .gtitle{position:absolute;left:8px;bottom:100%;margin-bottom:34px;display:flex;align-items:baseline;
   gap:26px;white-space:nowrap;transition:opacity .4s}
 .gtitle .nm{font-family:var(--serif);font-size:118px;line-height:.9}
+.gtitle{transition:opacity .2s ease}
+.gframe.labelled .gtitle{opacity:0}
 .gtitle .ct{font-family:var(--mono);font-size:30px;letter-spacing:.22em;text-transform:uppercase;opacity:.55}
 body.close .gtitle{opacity:0}
 

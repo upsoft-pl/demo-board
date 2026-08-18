@@ -49,6 +49,8 @@ import { buildCorpus, searchBoard, relatedScreens } from '../core/search.js';
 const DOCK_MIN = 0.5;      // below this the camera isn't looking at anything
 const DOCK_MAX = 1.35;     // above this the presenter is reading detail — leave them alone
 const GRID_TILE = 170;     // period the backdrop tiles share (170 = 5×34); grid pan wraps on it
+const GTITLE_PX = 118;     // .gtitle .nm font-size in player.css; keep the two in sync
+const LABEL_AT = 26;       // show the centred locator once the in-world title shrinks below this (px on screen)
 
 /** Euclidean modulo — always in [0, m), unlike JS % which keeps the sign. */
 const mod = (n, m) => ((n % m) + m) % m;
@@ -101,6 +103,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   mount.innerHTML = `
     <div id="stage"><div id="grid"></div><div id="world"></div></div>
     <div id="grain"></div><div id="vignette"></div>
+    <div id="glabels"></div>
     <svg id="leaders"></svg><div id="targets"></div><div id="notes"></div>
     <div id="mark"><s>◆</s> &nbsp;<span></span></div>
     <div id="caption"><span class="g"><em></em><span></span></span>
@@ -146,9 +149,19 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   $('#mark span').textContent = board.title;
 
   const GPAD = 190;
-  const plateEl = new Map(), frameEl = new Map();
+  const glabels = $('#glabels');
+  const plateEl = new Map(), frameEl = new Map(), glabelEl = new Map();
   for (const g of board.groups) {
     const bb = groupBB.get(g.id);
+    // Screen-space locator label, centred on the group. The in-world .gtitle
+    // scales with the camera and vanishes when zoomed out; this one stays a
+    // fixed, readable size and fades in once the group gets small (see render).
+    const lab = document.createElement('div');
+    lab.className = 'glabel';
+    lab.style.color = g.color;
+    lab.textContent = g.title;
+    glabels.appendChild(lab);
+    glabelEl.set(g.id, lab);
     const f = document.createElement('div');
     f.className = 'gframe';
     f.dataset.group = g.id;
@@ -195,6 +208,29 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   const flyMs = () => cssMs('--fly', 1050);
   const noteOutMs = () => cssMs('--note-out', 180);
 
+  /**
+   * Promote #world to its own layer only while the camera is moving.
+   *
+   * A permanent `will-change:transform` pins the layer's raster at scale 1, so
+   * zooming out downsamples full-res screenshots with cheap bilinear filtering
+   * and they alias ("show pixels"). Promoting only during motion — and dropping
+   * it once renders go quiet — lets the browser re-rasterise the settled frame
+   * at the true scale, which is sharp. Every motion path (drag, wheel, flyTo)
+   * goes through render(), so kicking the timer here covers all of them.
+   *
+   * Removing will-change alone won't invalidate the cached raster, so the demote
+   * nudges the transform into a 3D layer once to force a fresh, crisp raster.
+   */
+  let motionTimer = null;
+  function markMotion() {
+    world.style.willChange = 'transform';
+    clearTimeout(motionTimer);
+    motionTimer = setTimeout(() => {
+      world.style.willChange = 'auto';
+      world.style.transform += ' translateZ(0)';
+    }, 200);
+  }
+
   function render() {
     const v = vp();
     world.style.transform =
@@ -210,6 +246,36 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     gridEl.style.opacity = Math.min(1, .35 + cam.z * 1.4);
     document.body.classList.toggle('close', cam.z > 0.42);
     layoutNotes();
+    layoutLabels();
+    markMotion();
+  }
+
+  /**
+   * Position and reveal the screen-space group locators. They fade in only once
+   * the in-world title (GTITLE_PX at the current zoom) is too small to read, and
+   * only for groups whose centre is on screen — so zoomed out you can still find
+   * a group by its name, without cluttering the view when a title is legible.
+   */
+  function layoutLabels() {
+    const v = vp();
+    const show = GTITLE_PX * cam.z < LABEL_AT;
+    for (const [id, lab] of glabelEl) {
+      const bb = groupBB.get(id);
+      const sx = ((bb.x0 + bb.x1) / 2 - cam.x) * cam.z + v.w / 2;
+      const sy = ((bb.y0 + bb.y1) / 2 - cam.y) * cam.z + v.h / 2;
+      const on = show && sx > 0 && sx < v.w && sy > 0 && sy < v.h;
+      lab.classList.toggle('on', on);
+      // Hand off: hide this group's in-world title while its locator is up, so
+      // the two never stack. (body.close already hides it at the zoomed-in end.)
+      frameEl.get(id).classList.toggle('labelled', on);
+      if (on) {
+        // Keep the whole label on screen — an edge group would otherwise clip.
+        const hw = lab.offsetWidth / 2, hh = lab.offsetHeight / 2;
+        const x = Math.max(hw + 12, Math.min(sx, v.w - hw - 12));
+        const y = Math.max(hh + 12, Math.min(sy, v.h - hh - 12));
+        lab.style.transform = `translate(${x}px,${y}px) translate(-50%,-50%)`;
+      }
+    }
   }
   function flyTo(t, dur = flyMs(), after) {
     cancelAnimationFrame(anim);
@@ -663,6 +729,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       clearNotes();                 // cancels the pending fade-out timers too
       cancelAnimationFrame(anim);
       clearTimeout(freeTimer);
+      clearTimeout(motionTimer);
       mount.innerHTML = '';
     },
   };
