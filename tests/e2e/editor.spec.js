@@ -305,6 +305,46 @@ test('switching a group to free hand seeds positions and allows dragging', async
   expect((await doc(page)).groups[0].layout).toBe('manual');
 });
 
+test('dragging a group after reopening persists to the store and is undoable', async ({ page }) => {
+  // A drag mutates the board live and coalesces into a single commit on
+  // pointerup. When the undo stack is empty — exactly the state a freshly
+  // reopened board is in — that coalescing used to no-op, so the move never
+  // reached storage. Reproduce that path by round-tripping through the library.
+  const id = (await boardWithScreen(page)).id;
+
+  // Let the debounced autosave flush, so reopening loads the group we placed.
+  await expect.poll(() => page.evaluate(bid =>
+    window.__store.loadBoard(bid).then(b => b?.groups?.[0]?.screens?.length ?? 0), id)).toBe(1);
+
+  // Back to the library and reopen: this rebuilds the editor with an empty
+  // undo stack while the in-memory store keeps the board.
+  await page.getByTestId('to-library').click();
+  await page.getByTestId('board-card').click();
+  await page.waitForFunction(() => !!window.__editor);
+  const handle = page.getByTestId('group-handle').first();
+  await expect(handle).toBeVisible();
+
+  // Baseline origin, read from the store — the pre-drag truth.
+  const before = await page.evaluate(bid =>
+    window.__store.loadBoard(bid).then(b => b.groups[0].origin), id);
+
+  // Drag the group by its title handle — the first action after load.
+  const box = await handle.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 140, box.y + box.height / 2 + 90, { steps: 10 });
+  await page.mouse.up();
+
+  // The move must land in the store, not just the live DOM.
+  await expect.poll(() => page.evaluate(bid =>
+    window.__store.loadBoard(bid).then(b => b.groups[0].origin.x), id)).not.toBe(before.x);
+
+  // One undo returns the group to where it started.
+  await page.locator('#undo').click();
+  await expect.poll(() =>
+    page.evaluate(() => window.__editor.board.groups[0].origin.x)).toBe(before.x);
+});
+
 test('draws an annotation by dragging a box on the screenshot', async ({ page }) => {
   await boardWithScreen(page);
   await page.getByTestId('mode-annotate').click();

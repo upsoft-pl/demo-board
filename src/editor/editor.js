@@ -584,7 +584,7 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       const g = groupOf(handle);
       select({ kind: 'group', groupId: handle });
       gdrag = { id: handle, sx: e.clientX, sy: e.clientY,
-                ox: g.origin?.x ?? 0, oy: g.origin?.y ?? 0 };
+                ox: g.origin?.x ?? 0, oy: g.origin?.y ?? 0, pre: board };
       try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
       return;
     }
@@ -595,7 +595,7 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       select({ kind: 'screen', screenId: id, groupId: g.id });
       if (g.layout === 'manual') {
         sdrag = { id, gx: g.origin?.x ?? 0, gy: g.origin?.y ?? 0,
-                  sx: e.clientX, sy: e.clientY, ox: s.pos?.x ?? 0, oy: s.pos?.y ?? 0 };
+                  sx: e.clientX, sy: e.clientY, ox: s.pos?.x ?? 0, oy: s.pos?.y ?? 0, pre: board };
         try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
         return;
       }
@@ -640,8 +640,10 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     paintCanvas();
   });
   window.addEventListener('pointerup', () => {
-    // one undo entry per drag, not one per pointermove
-    if (sdrag || gdrag) { const b = board; board = undo.at(-1) ?? board; commit(b); }
+    // one undo entry per drag, not one per pointermove. The live drag mutated
+    // `board` in place without touching undo, so rewind to the snapshot taken at
+    // pointerdown — not undo.at(-1), which is the state *before* the drag began.
+    if (sdrag || gdrag) { const moved = board; board = (sdrag ?? gdrag).pre; commit(moved); }
     sdrag = null; cdrag = null; gdrag = null;
     canvas.classList.remove('dragging');
   });
