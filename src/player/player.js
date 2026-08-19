@@ -112,7 +112,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     <div id="grain"></div><div id="vignette"></div>
     <div id="glabels"></div>
     <div id="fps"></div>
-    <svg id="leaders"></svg><div id="targets"></div><div id="notes"></div>
+    <svg id="leaders"></svg><div id="targets"></div><div id="noteshadows"></div><div id="notes"></div>
     <div id="mark"><s>◆</s> &nbsp;<span></span></div>
     <div id="caption"><span class="g"><em></em><span></span></span>
       <span class="k"></span><div class="t"></div><div class="r"></div></div>
@@ -149,7 +149,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
   const $ = s => mount.querySelector(s);
   const stage = $('#stage'), world = $('#world'), gridEl = $('#grid');
   const leaders = $('#leaders'), notesLayer = $('#notes'), caption = $('#caption');
-  const targetLayer = $('#targets');
+  const targetLayer = $('#targets'), shadowsLayer = $('#noteshadows');
   const capG = $('#caption .g span'), capK = $('#caption .k'), capT = $('#caption .t');
   const dotsEl = $('#dots'), gchip = $('#gchip'), dockChip = $('#dock'), nextgChip = $('#nextg');
   const backBtn = $('#back'), fwdBtn = $('#fwd'), prevBtn = $('#prev'), nextBtn = $('#next');
@@ -399,12 +399,13 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     const ms = noteOutMs();
     for (const n of live) {
       n.el.classList.add('out');
-      const { el, path, dot, ring } = n;
-      const drop = () => { el.remove(); path.remove(); dot.remove(); ring.remove(); };
+      n.shadow.classList.add('out');
+      const { el, path, dot, ring, shadow } = n;
+      const drop = () => { el.remove(); path.remove(); dot.remove(); ring.remove(); shadow.remove(); };
       // leaders and rings point at the old screenshot, so they must go at once —
-      // only the note itself gets to fade
+      // only the note (and the shadow tracking it) get to fade
       path.remove(); dot.remove(); ring.remove();
-      ms <= 2 ? el.remove() : setTimeout(drop, ms);
+      ms <= 2 ? drop() : setTimeout(drop, ms);
     }
     live = []; liveKey = null;
   }
@@ -422,6 +423,10 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       el.innerHTML = `<span class="n">Note ${String(i + 1).padStart(2, '0')}</span>
         <div class="x">${richText(n.text)}</div>`;
       notesLayer.appendChild(el);
+      const shadow = document.createElement('div');
+      shadow.className = 'note-shadow';
+      shadow.style.setProperty('--d', delay);
+      shadowsLayer.appendChild(shadow);
       const ring = document.createElement('div');
       ring.className = 'target';
       ring.style.setProperty('--d', delay);
@@ -435,9 +440,14 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       dot.setAttribute('r', '3.5');
       dot.style.setProperty('--d', delay);
       leaders.appendChild(dot);
-      live.push({ id: n.id, rect: n.rect, screen: step.screen, el, ring, path, dot });
+      live.push({ id: n.id, rect: n.rect, screen: step.screen, el, ring, path, dot, shadow });
     });
     layoutNotes(true);
+    // A web-font swap reflows note height after the camera has settled, when the
+    // render loop is no longer re-measuring — leaving note placement (and the
+    // shadow box that tracks it) stuck at the pre-font height. Re-lay-out once
+    // fonts are ready, unless we've since moved on to another step.
+    document.fonts?.ready.then(() => { if (liveKey === key) layoutNotes(true); });
   }
   function layoutNotes(first) {
     if (!live.length) return;
@@ -461,9 +471,10 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       const n = live.find(x => x.id === pos.id);
       n.el.style.left = `${pos.x}px`;
       n.el.style.top = `${pos.y}px`;
-      // higher note on top: its opaque body then covers the drop shadow the note
-      // below casts upward across the gutter gap, instead of the shadow landing on it
-      n.el.style.zIndex = `${Math.round(10000 - pos.y)}`;
+      // the shadow box tracks the note's rect from a layer below every body
+      n.shadow.style.left = `${pos.x}px`;
+      n.shadow.style.top = `${pos.y}px`;
+      n.shadow.style.height = `${n.el.offsetHeight}px`;
       const hs = hotspotToViewport(n.rect, pr);
       // assign properties individually: `cssText +=` runs every frame and
       // concatenates declarations into each other, corrupting them

@@ -133,10 +133,21 @@ body.close .plate-tag{opacity:0}
   animation-delay:var(--d)}
 @keyframes tgt{from{opacity:0;transform:scale(1.06)}to{opacity:.95;transform:scale(1)}}
 
-#notes{position:fixed;inset:0;z-index:21;pointer-events:none}
+/* Soft note shadows live one layer BELOW every note body, so a note's shadow can
+   never paint over a neighbouring note (opaque bodies cover it). z-order can't
+   solve this on its own — it's a total order, so one shadow direction always
+   bleeds — hence the split. The 1px hairline stays on the body as its crisp edge. */
+#noteshadows{position:fixed;inset:0;z-index:21;pointer-events:none}
+.note-shadow{position:absolute;width:322px;border-radius:3px;
+  box-shadow:0 1px 2px rgba(0,0,0,.5),0 22px 48px -10px rgba(0,0,0,.75);
+  opacity:0;transform:translateY(10px) scale(.975);
+  animation:note .5s cubic-bezier(.22,1.2,.4,1) forwards;animation-delay:var(--d)}
+.note-shadow.out{animation:noteOut .18s ease forwards}
+
+#notes{position:fixed;inset:0;z-index:22;pointer-events:none}
 .note{position:absolute;width:322px;background:var(--paper);color:var(--paper-ink);
   padding:15px 18px 16px;border-radius:3px;
-  box-shadow:0 1px 2px rgba(0,0,0,.5),0 22px 48px -10px rgba(0,0,0,.75),0 0 0 1px rgba(0,0,0,.35);
+  box-shadow:0 0 0 1px rgba(0,0,0,.35);
   opacity:0;transform:translateY(10px) scale(.975);
   animation:note .5s cubic-bezier(.22,1.2,.4,1) forwards;animation-delay:var(--d)}
 @keyframes note{to{opacity:1;transform:none}}
