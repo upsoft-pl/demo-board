@@ -461,6 +461,9 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       const n = live.find(x => x.id === pos.id);
       n.el.style.left = `${pos.x}px`;
       n.el.style.top = `${pos.y}px`;
+      // higher note on top: its opaque body then covers the drop shadow the note
+      // below casts upward across the gutter gap, instead of the shadow landing on it
+      n.el.style.zIndex = `${Math.round(10000 - pos.y)}`;
       const hs = hotspotToViewport(n.rect, pr);
       // assign properties individually: `cssText +=` runs every frame and
       // concatenates declarations into each other, corrupting them

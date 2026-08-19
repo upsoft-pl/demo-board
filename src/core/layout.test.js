@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   safeBox, fitOf, camFor, camForBox, boundsOf, autoLayout, placeScreens,
-  hotspotToViewport, computeNoteLayout, leaderPath, framingRatio, isCentred,
+  hotspotToViewport, computeNoteLayout, leaderPath, routeLeader, framingRatio, isCentred,
   NOTE_W, MARGIN, TOP_PAD, BOT_PAD,
 } from './layout.js';
 
@@ -183,11 +183,105 @@ describe('computeNoteLayout', () => {
     expect(computeNoteLayout({ notes: [], viewport: VP, gutter: 'right' })).toEqual([]);
   });
 
-  it('points the leader at the hotspot and stops short of the note', () => {
+  it('routes an octilinear leader that starts at the rect and ends at the note', () => {
     const [n] = computeNoteLayout({ notes: [note('a', 300)], viewport: VP, gutter: 'right' });
-    expect(n.leader.x2).toBeLessThan(n.leader.x1);      // right gutter → leader runs leftward
+    // the polyline is painted rect → note: first point is the dot (rect side)…
+    expect(n.leader[0]).toEqual(n.dot);
     expect(n.dot.y).toBeCloseTo(320, 6);                 // hotspot vertical centre
-    expect(leaderPath(n.leader)).toMatch(/^M [\d.-]+ [\d.-]+ C /);
+    // …and the last point lands on the note's near vertical edge (right gutter → note is left-most)
+    expect(n.leader[n.leader.length - 1].x).toBeGreaterThan(n.leader[0].x);
+    expect(leaderPath(n.leader)).toMatch(/^M [\d.-]+ [\d.-]+( L [\d.-]+ [\d.-]+)+$/);
+    for (let i = 1; i < n.leader.length; i++) expectOctile(n.leader[i - 1], n.leader[i]);
+  });
+
+  it('reorders notes down the gutter to avoid leaders crossing each other', () => {
+    // two hotspots on one row: the far-left one, placed on top by authoring order,
+    // must detour around the near one and cross its leader — unless the notes swap.
+    const notes = [
+      { id: 'far',  height: 90, hotspot: { left: 100, top: 380, width: 90, height: 45 } },
+      { id: 'near', height: 90, hotspot: { left: 640, top: 380, width: 90, height: 45 } },
+    ];
+    const out = computeNoteLayout({ notes, viewport: VP, gutter: 'right' });
+    expect(out.map(n => n.id).sort()).toEqual(['far', 'near']);   // both kept
+    expect(countCrossings(out.map(n => n.leader))).toBe(0);        // and none cross
+  });
+});
+
+// A segment is octilinear iff it is horizontal, vertical, or on a 45° diagonal.
+function expectOctile(a, b) {
+  const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y);
+  expect(dx < 1e-6 || dy < 1e-6 || Math.abs(dx - dy) < 1e-6).toBe(true);
+}
+
+// Count leader pairs whose polylines properly cross — mirrors the player's own check.
+function countCrossings(leaders) {
+  const side = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const cross = (a, b, c, d) => side(c, d, a) * side(c, d, b) < 0 && side(a, b, c) * side(a, b, d) < 0;
+  let n = 0;
+  for (let i = 0; i < leaders.length; i++)
+    for (let j = i + 1; j < leaders.length; j++) {
+      let hit = false;
+      for (let a = 1; a < leaders[i].length && !hit; a++)
+        for (let b = 1; b < leaders[j].length && !hit; b++)
+          if (cross(leaders[i][a - 1], leaders[i][a], leaders[j][b - 1], leaders[j][b])) hit = true;
+      if (hit) n++;
+    }
+  return n;
+}
+
+// Does segment a→b cross axis-aligned rect r (in viewport coords)? Sampled —
+// enough to catch a leader ploughing through an obstacle in the tests below.
+function segHitsRect(a, b, r) {
+  const N = 200;
+  for (let t = 0; t <= N; t++) {
+    const x = a.x + (b.x - a.x) * (t / N), y = a.y + (b.y - a.y) * (t / N);
+    if (x > r.left && x < r.left + r.width && y > r.top && y < r.top + r.height) return true;
+  }
+  return false;
+}
+
+describe('routeLeader', () => {
+  const clear = (leader, obstacles) => {
+    for (let i = 1; i < leader.length; i++) expectOctile(leader[i - 1], leader[i]);
+    for (const o of obstacles) for (let i = 1; i < leader.length; i++)
+      expect(segHitsRect(leader[i - 1], leader[i], o)).toBe(false);
+  };
+
+  it('draws a single straight segment when the field is clear and level', () => {
+    const leader = routeLeader({ start: { x: 100, y: 100 }, goal: { x: 500, y: 100 }, obstacles: [] });
+    expect(leader).toEqual([{ x: 100, y: 100 }, { x: 500, y: 100 }]);
+  });
+
+  it('keeps every segment octilinear even with a vertical offset', () => {
+    const leader = routeLeader({ start: { x: 100, y: 100 }, goal: { x: 500, y: 260 }, obstacles: [] });
+    expect(leader[0]).toEqual({ x: 100, y: 100 });
+    expect(leader[leader.length - 1]).toEqual({ x: 500, y: 260 });
+    clear(leader, []);
+  });
+
+  it('detours around a rect that straddles the direct line', () => {
+    const obstacle = { left: 250, top: 80, width: 100, height: 60 }; // covers the y=100 line
+    const leader = routeLeader({ start: { x: 100, y: 100 }, goal: { x: 500, y: 100 }, obstacles: [obstacle] });
+    expect(leader.length).toBeGreaterThan(2);   // it had to bend around
+    clear(leader, [obstacle]);
+    expect(leader[0]).toEqual({ x: 100, y: 100 });
+    expect(leader[leader.length - 1]).toEqual({ x: 500, y: 100 });
+  });
+
+  it('is deterministic — identical input yields an identical route', () => {
+    const args = { start: { x: 120, y: 90 }, goal: { x: 640, y: 310 },
+      obstacles: [{ left: 300, top: 120, width: 120, height: 140 }] };
+    expect(routeLeader(args)).toEqual(routeLeader(args));
+  });
+
+  it('degrades to a straight line rather than failing when boxed in', () => {
+    // goal fully enclosed by an obstacle ring the router cannot escape
+    const wall = { left: 400, top: 0, width: 40, height: 900 };
+    const leader = routeLeader({ start: { x: 100, y: 100 }, goal: { x: 800, y: 100 },
+      obstacles: [wall, { left: 440, top: 60, width: 400, height: 80 }] });
+    expect(leader.length).toBeGreaterThanOrEqual(2);
+    expect(leader[0]).toEqual({ x: 100, y: 100 });
+    expect(leader[leader.length - 1]).toEqual({ x: 800, y: 100 });
   });
 });
 
