@@ -52,6 +52,7 @@ const GRID_TILE = 170;     // period the backdrop tiles share (170 = 5×34); gri
 const GTITLE_PX = 118;     // .gtitle .nm font-size in player.css; keep the two in sync
 const LABEL_AT = 26;       // show the centred locator once the in-world title shrinks below this (px on screen)
 const THUMB_PX = 1024;     // longest side of the downscaled LOD copy; plates use it when smaller than this on screen
+const PROMOTE_MAX_PX = 8192; // worlds wider/taller than one GPU texture aren't promoted while moving — see markMotion
 
 /** Euclidean modulo — always in [0, m), unlike JS % which keeps the sign. */
 const mod = (n, m) => ((n % m) + m) % m;
@@ -99,6 +100,11 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     x1: Math.max(...[...groupBB.values()].map(b => b.x1)),
     y1: Math.max(...[...groupBB.values()].map(b => b.y1)),
   };
+  // A world that fits inside one GPU texture can be promoted to a single
+  // compositor layer while moving; one larger than that can't, and forcing it
+  // makes zoom-out blink (see markMotion). Decide once from the natural size.
+  const promoteWorld =
+    Math.max(boardBB.x1 - boardBB.x0, boardBB.y1 - boardBB.y0) <= PROMOTE_MAX_PX;
 
   /* ── DOM ─────────────────────────────────────────────────────────────── */
   mount.innerHTML = `
@@ -230,15 +236,23 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
    * (grain's mix-blend, the grid mask) while the whole scene re-composites each
    * frame — a trace showed those saturating the GPU during pan. They come back
    * on settle, where a still frame can afford them.
+   *
+   * The promotion is skipped for worlds larger than one GPU texture
+   * (`promoteWorld`): such a layer must be tiled, and re-rastering the tiles on
+   * a scale change drops one blank frame — the whole board blinks black on
+   * zoom-out. Measured pan cost is identical without the promotion at every
+   * zoom, so a big board simply forgoes it; the `moving` effect-drop still runs.
    */
   let motionTimer = null;
   function markMotion() {
-    world.style.willChange = 'transform';
+    if (promoteWorld) world.style.willChange = 'transform';
     document.body.classList.add('moving');
     clearTimeout(motionTimer);
     motionTimer = setTimeout(() => {
-      world.style.willChange = 'auto';
-      world.style.transform += ' translateZ(0)';
+      if (promoteWorld) {
+        world.style.willChange = 'auto';
+        world.style.transform += ' translateZ(0)';
+      }
       document.body.classList.remove('moving');
       applyLOD();                 // settled: pick the right resolution for each plate
     }, 200);
