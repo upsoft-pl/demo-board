@@ -227,6 +227,20 @@ export function screenById(board, screenId) {
   return null;
 }
 
+/**
+ * The step a screen navigates to when clicked — the first step (authored order)
+ * that frames it — or null if no step does. Screens are group-scoped
+ * (validateBoard enforces it), so the answer is always within the owning group.
+ * The "if any" gate for the player's click-to-zoom: a screen no step frames is
+ * not navigable, so it returns null rather than a fallback.
+ */
+export function stepForScreen(board, screenId) {
+  const owner = screenById(board, screenId);
+  if (!owner) return null;
+  const step = owner.group.steps.find(s => s.screen === screenId);
+  return step ? { groupId: owner.group.id, stepId: step.id } : null;
+}
+
 /* ── import ──────────────────────────────────────────────────────────────── */
 
 /**

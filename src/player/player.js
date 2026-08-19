@@ -11,7 +11,7 @@ import {
 } from '../core/layout.js';
 import {
   validateBoard, normalizeBoard, migrateBoard, resolveStep, reconcileRef, findGroup,
-  screenBackground, cropOf,
+  screenBackground, cropOf, stepForScreen,
 } from '../core/schema.js';
 
 /**
@@ -159,6 +159,9 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   const GPAD = 190;
   const glabels = $('#glabels');
   const plateEl = new Map(), frameEl = new Map(), glabelEl = new Map();
+  // Screens a click can zoom to (they are framed by some step). Only these get
+  // the cursor + hover affordance; a screen no step frames is not navigable.
+  const navScreens = new Set();
   // LOD: full-res src, generated thumbnail url, and current level per screen.
   const fullSrc = new Map(), thumbURL = new Map(), lodIsThumb = new Map();
   for (const g of board.groups) {
@@ -201,7 +204,12 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
       world.appendChild(d);
       plateEl.set(s.id, d);
       fullSrc.set(s.id, srcOf(s.src));
+      // Navigable only if a step frames this screen ("if any"). Those plates get
+      // a group-tinted hover ring; dock() then flies to that step.
+      const navigable = !!stepForScreen(board, s.id);
+      if (navigable) { navScreens.add(s.id); d.style.setProperty('--ring', hexA(g.color, .55)); }
       d.addEventListener('click', () => {
+        if (!navigable) return;
         if (cam.z < fitOf(p, safeBox(vp(), 'right', false)) * DOCK_MIN) dock(s.id);
       });
     });
@@ -258,6 +266,22 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     }, 200);
   }
 
+  /**
+   * Flag the plates that a click would currently zoom into — navigable *and*
+   * small enough on screen that clicking meaningfully zooms in (the same gate
+   * the click handler uses). CSS can't see the camera, so the affordance
+   * (cursor + hover ring) rides on this class. Writes only on a state flip, and
+   * the class is cursor/:hover-only, so toggling it costs no repaint.
+   */
+  const zoomState = new Map();
+  function updateZoomable() {
+    const box = safeBox(vp(), 'right', false);
+    for (const [id, el] of plateEl) {
+      const on = navScreens.has(id) && cam.z < fitOf(placed.get(id), box) * DOCK_MIN;
+      if (zoomState.get(id) !== on) { el.classList.toggle('zoomable', on); zoomState.set(id, on); }
+    }
+  }
+
   function render() {
     const v = vp();
     world.style.transform =
@@ -274,6 +298,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     document.body.classList.toggle('close', cam.z > 0.42);
     layoutNotes();
     layoutLabels();
+    updateZoomable();
     markMotion();
   }
 

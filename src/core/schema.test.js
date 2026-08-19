@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CURRENT_VERSION, createIdFactory, validateBoard, normalizeBoard, migrateBoard,
   resolveStep, firstStepRef, reconcileRef, findGroup, screenById, importBoard,
-  screenBackground, isColor,
+  screenBackground, isColor, stepForScreen,
 } from './schema.js';
 
 const good = () => ({
@@ -202,6 +202,30 @@ describe('index-free addressing', () => {
     const b = good();
     b.groups[0].steps = [];
     expect(firstStepRef(b, 'g_bugs')).toBeNull();
+  });
+});
+
+describe('stepForScreen', () => {
+  it('returns the first step that frames a given screen', () => {
+    expect(stepForScreen(good(), 's_inbox')).toEqual({ groupId: 'g_bugs', stepId: 'st_a' });
+    expect(stepForScreen(good(), 's_one')).toEqual({ groupId: 'g_bugs', stepId: 'st_b' });
+  });
+
+  it('returns null for a screen no step frames — the "if any" gate', () => {
+    const b = good();
+    b.groups[0].screens.push({ id: 's_orphan', name: 'Unused', src: 'x.png', w: 10, h: 10 });
+    expect(stepForScreen(b, 's_orphan')).toBeNull();
+  });
+
+  it('returns null for an unknown screen id', () => {
+    expect(stepForScreen(good(), 'nope')).toBeNull();
+  });
+
+  it('addresses by id, not index — survives a step reorder', () => {
+    const b = good();
+    const steps = b.groups[0].steps;
+    steps.unshift(steps.splice(1, 1)[0]);          // drag 'st_b' to the front
+    expect(stepForScreen(b, 's_one')).toEqual({ groupId: 'g_bugs', stepId: 'st_b' });
   });
 });
 

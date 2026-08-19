@@ -98,6 +98,13 @@ body.close .gtitle{opacity:0}
 .plate{isolation:isolate}
 .plate.near{opacity:.34;filter:saturate(.4)}
 .plate.far{opacity:.11;filter:saturate(.1)}
+/* .zoomable: set by the player when a click would zoom into this screen's step.
+   Lift & accent-glow affordance; --ring is the screen's group colour. */
+.plate.zoomable{cursor:pointer;
+  transition:opacity .5s cubic-bezier(.2,.6,.2,1),filter .5s,transform .18s ease,box-shadow .18s ease}
+.plate.zoomable:hover{transform:scale(1.025);z-index:5;
+  box-shadow:0 6px 14px rgba(0,0,0,.5),0 40px 90px -12px rgba(0,0,0,.8),
+             0 0 0 1px rgba(255,255,255,.10),0 0 0 3px var(--ring,transparent)}
 .plate-tag{position:absolute;left:0;bottom:-64px;display:flex;align-items:baseline;gap:16px;
   transition:opacity .4s;white-space:nowrap}
 .plate-tag .idx{font-family:var(--mono);font-size:20px;font-weight:500;letter-spacing:.12em;opacity:.85}
