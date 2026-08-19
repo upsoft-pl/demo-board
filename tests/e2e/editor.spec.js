@@ -555,6 +555,13 @@ test('leaving preview removes every trace of the player', async ({ page }) => {
   await drawNotes(page, ['leaves a ring behind?']);
 
   await page.getByTestId('mode-preview').click();
+  await page.waitForFunction(() => !!window.__player);
+  // Preview now opens on the layout viewport without revealing notes; frame the
+  // step so there are targets/notes whose cleanup on exit we can then verify.
+  await page.evaluate(() => {
+    const g = window.__player.board.groups.find(x => x.steps.length);
+    window.__player.goto(g.id, g.steps[0].id);
+  });
   await page.waitForFunction(() => document.querySelectorAll('.target').length > 0, null, { timeout: 8000 });
   expect(await page.locator('.target').count()).toBeGreaterThan(0);
 
@@ -947,6 +954,13 @@ test('preview renders the edited board with no note over the screenshot', async 
   await drawNotes(page, ['1,284 reports.', 'Nobody triaged them.']);
 
   await page.getByTestId('mode-preview').click();
+  await page.waitForFunction(() => !!window.__player);
+  // Entry opens on the layout viewport (no notes yet); frame the step to reveal
+  // them, then assert none overlaps the screenshot.
+  await page.evaluate(() => {
+    const g = window.__player.board.groups.find(x => x.steps.length);
+    window.__player.goto(g.id, g.steps[0].id);
+  });
   await page.waitForFunction(() => window.__player && document.querySelectorAll('.note').length > 0,
     null, { timeout: 8000 });
   await page.waitForTimeout(200);
