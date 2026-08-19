@@ -84,6 +84,28 @@ test('no note ever overlaps the screenshot, in any step of any group', async ({ 
   expect(seen.length, 'no annotated step was exercised').toBeGreaterThan(3);
 });
 
+test('above FHD the overlay scales up but still never covers the screenshot', async ({ page }) => {
+  // The whole suite runs at 1440×900 (scale 1); this one case opens a 4K window
+  // where uiScale ≈ 2, to prove the overlay grows *and* the no-overlap invariant
+  // survives the larger gutter. See uiScale in core/layout.js.
+  await page.setViewportSize({ width: 3840, height: 2160 });
+  await open(page);
+  const uiScale = await page.evaluate(() =>
+    parseFloat(getComputedStyle(document.querySelector('.note').closest('[style*="ui-scale"]'))
+      .getPropertyValue('--ui-scale')));
+  expect(uiScale, '4K window should scale the overlay ~2×').toBeGreaterThan(1.8);
+
+  const noteW = await page.evaluate(() => document.querySelector('.note').getBoundingClientRect().width);
+  expect(noteW, 'note box grew with the window').toBeGreaterThan(322 * 1.8);
+
+  await eachStep(page, async (g, stepId) => {
+    const r = await rects(page);
+    if (!r.plate || !r.notes.length) return;
+    const total = r.notes.reduce((s, n) => s + overlap(n, r.plate), 0);
+    expect(total, `${g.title}/${stepId} — a scaled note covered the screenshot`).toBe(0);
+  });
+});
+
 test('notes stay on screen and clear of the caption and HUD', async ({ page }) => {
   await open(page);
   await eachStep(page, async (g, stepId) => {

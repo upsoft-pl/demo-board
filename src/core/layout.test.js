@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   safeBox, fitOf, camFor, camForBox, boundsOf, autoLayout, placeScreens,
   hotspotToViewport, computeNoteLayout, leaderPath, routeLeader, framingRatio, isCentred,
+  uiScale, UI_SCALE_CAP,
   NOTE_W, MARGIN, TOP_PAD, BOT_PAD,
 } from './layout.js';
 
@@ -34,6 +35,36 @@ describe('safeBox', () => {
     const b = safeBox(VP, 'right', true);
     expect(b.t).toBe(TOP_PAD);
     expect(b.b).toBe(VP.h - BOT_PAD);
+  });
+});
+
+describe('uiScale', () => {
+  it('is a no-op at or below FHD', () => {
+    expect(uiScale({ w: 1920, h: 1080 })).toBe(1);
+    expect(uiScale({ w: 1440, h: 900 })).toBe(1);   // the e2e viewport
+    expect(uiScale({ w: 1280, h: 720 })).toBe(1);
+  });
+
+  it('grows proportionally above FHD, keyed off the more-constrained axis', () => {
+    expect(uiScale({ w: 3840, h: 2160 })).toBeCloseTo(2, 6);      // 4K → 2×
+    // a wide-but-short window scales by height, not width
+    expect(uiScale({ w: 3840, h: 1080 })).toBe(1);
+    expect(uiScale({ w: 2880, h: 1620 })).toBeCloseTo(1.5, 6);
+  });
+
+  it('never exceeds the cap', () => {
+    expect(uiScale({ w: 7680, h: 4320 })).toBe(UI_SCALE_CAP);
+  });
+});
+
+describe('computeNoteLayout scales with the ui factor', () => {
+  const notes = [{ id: 'n', height: 90, hotspot: { left: 400, top: 300, width: 40, height: 20 } }];
+  it('widens the note box and pushes it further from the edge at 2×', () => {
+    const one = computeNoteLayout({ notes, viewport: { w: 3840, h: 2160 }, gutter: 'right', scale: 1 });
+    const two = computeNoteLayout({ notes, viewport: { w: 3840, h: 2160 }, gutter: 'right', scale: 2 });
+    expect(two[0].width).toBeCloseTo(one[0].width * 2, 6);
+    // at 2× the note reserves NOTE_W*2 + MARGIN*2 from the right edge, so its x is further left
+    expect(two[0].x).toBeLessThan(one[0].x);
   });
 });
 

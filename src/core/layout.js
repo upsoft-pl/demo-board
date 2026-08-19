@@ -15,18 +15,31 @@ export const BOT_PAD = 96;
 export const NOTE_GAP = 13;
 export const CAPTION_GAP = 26;
 
+// The whole screen-space overlay (notes, leaders, targets, caption) is tuned at
+// 1920×1080. Above that the camera fills the bigger window with the screenshot,
+// so a fixed-px overlay reads as tiny. `uiScale` grows the overlay as a constant
+// fraction of the window — a no-op at or below FHD, capped so it never runs away.
+export const UI_REF_W = 1920;
+export const UI_REF_H = 1080;
+export const UI_SCALE_CAP = 2.2;
+export function uiScale(viewport, cap = UI_SCALE_CAP) {
+  const s = Math.min(viewport.w / UI_REF_W, viewport.h / UI_REF_H);
+  return Math.min(Math.max(s, 1), cap);
+}
+
 /**
  * The rectangle of the viewport a screenshot is allowed to occupy.
  * When a step has notes, the gutter on `gutter` side is reserved for them —
  * this is what makes it structurally impossible for a note to cover the image.
  */
-export function safeBox(viewport, gutter, hasNotes) {
-  const g = hasNotes ? NOTE_W + MARGIN * 2 : MARGIN;
+export function safeBox(viewport, gutter, hasNotes, scale = 1) {
+  const m = MARGIN * scale;
+  const g = hasNotes ? NOTE_W * scale + m * 2 : m;
   return {
-    l: gutter === 'left' ? g : MARGIN,
-    r: viewport.w - (gutter === 'right' ? g : MARGIN),
-    t: TOP_PAD,
-    b: viewport.h - BOT_PAD,
+    l: gutter === 'left' ? g : m,
+    r: viewport.w - (gutter === 'right' ? g : m),
+    t: TOP_PAD * scale,
+    b: viewport.h - BOT_PAD * scale,
   };
 }
 
@@ -133,10 +146,16 @@ export function hotspotToViewport(rect, plateRect) {
  * @param {number}   [a.captionBottom] y below which notes may start
  * @returns {Array} [{ id, x, y, leader:{ x1,y1,x2,y2,cx }, dot:{x,y} }]
  */
-export function computeNoteLayout({ notes, viewport, gutter, captionBottom = null }) {
+export function computeNoteLayout({ notes, viewport, gutter, captionBottom = null, scale = 1 }) {
   const right = gutter === 'right';
-  const x = right ? viewport.w - NOTE_W - MARGIN : MARGIN;
-  const cursor0 = captionBottom == null ? TOP_PAD : captionBottom + CAPTION_GAP;
+  const noteW = NOTE_W * scale;
+  const margin = MARGIN * scale;
+  const topPad = TOP_PAD * scale;
+  const botPad = BOT_PAD * scale;
+  const noteGap = NOTE_GAP * scale;
+  const capGap = CAPTION_GAP * scale;
+  const x = right ? viewport.w - noteW - margin : margin;
+  const cursor0 = captionBottom == null ? topPad : captionBottom + capGap;
 
   // baseline order: down the gutter by hotspot position. `bi` records that order
   // so a crossing-driven reshuffle can still be tie-broken back towards it.
@@ -152,14 +171,14 @@ export function computeNoteLayout({ notes, viewport, gutter, captionBottom = nul
     let cursor = cursor0;
     return order.map(it => {
       let y = Math.max(cursor, it.ty - it.height / 2);
-      y = Math.min(y, viewport.h - BOT_PAD - it.height + 34);
-      y = Math.max(y, TOP_PAD);
-      cursor = y + it.height + NOTE_GAP;
-      const bx = right ? x : x + NOTE_W;
+      y = Math.min(y, viewport.h - botPad - it.height + 34 * scale);
+      y = Math.max(y, topPad);
+      cursor = y + it.height + noteGap;
+      const bx = right ? x : x + noteW;
       const hs = it.hotspot;
       // attach to the near edge of the hotspot, never past the note itself
-      const tx = right ? Math.min(hs.left + hs.width + 8, bx - 16)
-                       : Math.max(hs.left - 8, bx + 16);
+      const tx = right ? Math.min(hs.left + hs.width + 8 * scale, bx - 16 * scale)
+                       : Math.max(hs.left - 8 * scale, bx + 16 * scale);
       return { ...it, y, start: { x: tx, y: it.ty }, goal: { x: bx, y: y + it.height / 2 } };
     });
   };
@@ -206,7 +225,7 @@ export function computeNoteLayout({ notes, viewport, gutter, captionBottom = nul
     id: it.id,
     x,
     y: it.y,
-    width: NOTE_W,
+    width: noteW,
     height: it.height,
     leader: best.leaders[i],
     dot: it.start,

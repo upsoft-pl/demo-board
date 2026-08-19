@@ -14,6 +14,11 @@
 
   --fly:1050ms;
   --note-out:180ms;     /* must match the .note.out animation below */
+
+  /* Screen-space overlay scale. 1 at/below FHD; grown from JS (applyScale) above
+     it so notes/leaders/targets/caption stay a constant fraction of the window.
+     The same number drives the core layout constants — see uiScale in layout.js. */
+  --ui-scale:1;
 }
 /* Deterministic e2e: ?test=1 removes every moving part.
    `transition:none`, NOT `transition-duration:1ms` — transition-property
@@ -118,7 +123,7 @@ body.close .plate-tag{opacity:0}
    sibling <div> layers — without an explicit size it collapses and clips every
    leader line. No viewBox: paths use absolute viewport-pixel coordinates. */
 #leaders{position:fixed;inset:0;width:100vw;height:100vh;z-index:20;pointer-events:none}
-#leaders path{fill:none;stroke:var(--accent);stroke-width:1;opacity:.72;
+#leaders path{fill:none;stroke:var(--accent);stroke-width:calc(1px * var(--ui-scale));opacity:.72;
   stroke-linejoin:round;stroke-linecap:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
   /* ease-in-out: the line eases out of the rect, races the middle, settles into
@@ -128,34 +133,36 @@ body.close .plate-tag{opacity:0}
 #leaders circle{fill:var(--accent);opacity:0;animation:dot .3s ease forwards;
   animation-delay:calc(var(--d) + .45s)}
 @keyframes dot{to{opacity:.9}}
-.target{position:fixed;z-index:19;border:1.25px solid var(--accent);border-radius:5px;
+.target{position:fixed;z-index:19;border:calc(1.25px * var(--ui-scale)) solid var(--accent);
+  border-radius:calc(5px * var(--ui-scale));
   pointer-events:none;opacity:0;animation:tgt .5s cubic-bezier(.34,1.4,.64,1) forwards;
   animation-delay:var(--d)}
 @keyframes tgt{from{opacity:0;transform:scale(1.06)}to{opacity:.95;transform:scale(1)}}
 
 #notes{position:fixed;inset:0;z-index:21;pointer-events:none}
-.note{position:absolute;width:322px;background:var(--paper);color:var(--paper-ink);
-  padding:15px 18px 16px;border-radius:3px;
+.note{position:absolute;width:calc(322px * var(--ui-scale));background:var(--paper);color:var(--paper-ink);
+  padding:calc(15px * var(--ui-scale)) calc(18px * var(--ui-scale)) calc(16px * var(--ui-scale));
+  border-radius:calc(3px * var(--ui-scale));
   box-shadow:0 1px 2px rgba(0,0,0,.5),0 22px 48px -10px rgba(0,0,0,.75),0 0 0 1px rgba(0,0,0,.35);
   opacity:0;transform:translateY(10px) scale(.975);
   animation:note .5s cubic-bezier(.22,1.2,.4,1) forwards;animation-delay:var(--d)}
 @keyframes note{to{opacity:1;transform:none}}
 .note.out{animation:noteOut .18s ease forwards}
 @keyframes noteOut{to{opacity:0;transform:translateY(-4px) scale(.985)}}
-.note::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent)}
-.note .n{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.16em;
-  color:var(--note-idx);margin-bottom:8px;display:block}
-.note .x{font-family:var(--read);font-size:16.5px;line-height:1.46;font-weight:350}
+.note::before{content:'';position:absolute;left:0;top:0;bottom:0;width:calc(3px * var(--ui-scale));background:var(--accent)}
+.note .n{font-family:var(--mono);font-size:calc(10px * var(--ui-scale));font-weight:600;letter-spacing:.16em;
+  color:var(--note-idx);margin-bottom:calc(8px * var(--ui-scale));display:block}
+.note .x{font-family:var(--read);font-size:calc(16.5px * var(--ui-scale));line-height:1.46;font-weight:350}
 .note .x b{font-weight:600;box-shadow:inset 0 -.5em 0 var(--accent-soft)}
 
-#caption{position:fixed;top:34px;width:322px;z-index:50;pointer-events:none;transition:opacity .3s}
-#caption .g{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;
-  color:var(--accent);display:flex;align-items:center;gap:8px;margin-bottom:11px}
-#caption .g em{width:7px;height:7px;border-radius:50%;background:var(--accent);display:block;flex-shrink:0}
-#caption .k{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
-  color:#6D7689;display:block;margin-bottom:9px}
-#caption .t{font-family:var(--serif);font-size:30px;line-height:1.16;color:#EAEDF4}
-#caption .r{width:44px;height:1px;background:var(--accent-dim);margin-top:16px}
+#caption{position:fixed;top:calc(34px * var(--ui-scale));width:calc(322px * var(--ui-scale));z-index:50;pointer-events:none;transition:opacity .3s}
+#caption .g{font-family:var(--mono);font-size:calc(10px * var(--ui-scale));letter-spacing:.22em;text-transform:uppercase;
+  color:var(--accent);display:flex;align-items:center;gap:calc(8px * var(--ui-scale));margin-bottom:calc(11px * var(--ui-scale))}
+#caption .g em{width:calc(7px * var(--ui-scale));height:calc(7px * var(--ui-scale));border-radius:50%;background:var(--accent);display:block;flex-shrink:0}
+#caption .k{font-family:var(--mono);font-size:calc(10px * var(--ui-scale));letter-spacing:.2em;text-transform:uppercase;
+  color:#6D7689;display:block;margin-bottom:calc(9px * var(--ui-scale))}
+#caption .t{font-family:var(--serif);font-size:calc(30px * var(--ui-scale));line-height:1.16;color:#EAEDF4}
+#caption .r{width:calc(44px * var(--ui-scale));height:1px;background:var(--accent-dim);margin-top:calc(16px * var(--ui-scale))}
 #caption.fade{opacity:0}
 #caption.centered{width:min(760px,70vw);top:auto;bottom:112px;left:50%!important;
   transform:translateX(-50%);text-align:center}
