@@ -49,7 +49,14 @@ test('zoomed out, a framed screenshot is clickable and flies to its step', async
   await expect(plate).toHaveClass(/zoomable/);
   expect(await plate.evaluate(e => getComputedStyle(e).cursor)).toBe('pointer');
 
-  await plate.click();
+  // A real pointer down+up through the stage's drag handlers — not plate.click().
+  // The stage captures the pointer on down, which retargets the click event to
+  // #stage; a plate `click` listener would never fire. The tap must be handled
+  // on pointerup instead. Driving the raw mouse exercises that production path.
+  const box = await plate.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
   await settle(page);
   expect(await page.evaluate(() => window.__player.ref))
     .toEqual({ groupId: target.groupId, stepId: target.stepId });

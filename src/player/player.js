@@ -205,13 +205,12 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       plateEl.set(s.id, d);
       fullSrc.set(s.id, srcOf(s.src));
       // Navigable only if a step frames this screen ("if any"). Those plates get
-      // a group-tinted hover ring; dock() then flies to that step.
-      const navigable = !!stepForScreen(board, s.id);
-      if (navigable) { navScreens.add(s.id); d.style.setProperty('--ring', hexA(g.color, .55)); }
-      d.addEventListener('click', () => {
-        if (!navigable) return;
-        if (cam.z < fitOf(p, safeBox(vp(), 'right', false)) * DOCK_MIN) dock(s.id);
-      });
+      // a group-tinted hover ring; a tap on one flies to that step — see the
+      // pointerup handler. The tap is handled there, not with a plate `click`
+      // listener, because stage.setPointerCapture() retargets the click event to
+      // #stage, so a per-plate click never fires (clicks died on the deployed
+      // player while hover still worked).
+      if (stepForScreen(board, s.id)) { navScreens.add(s.id); d.style.setProperty('--ring', hexA(g.color, .55)); }
     });
   }
 
@@ -770,6 +769,21 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     clearTimeout(freeTimer);
     freeTimer = setTimeout(settle, 300);
   }
+  /**
+   * A tap (pointer-down and -up in the same spot) on a screenshot flies to the
+   * step that frames it — the click-to-zoom affordance. Gated exactly like the
+   * `.zoomable` hover cue: the screen must be navigable and small enough on
+   * screen that a click meaningfully zooms in. Returns whether it navigated, so
+   * the caller can skip the free-flight settle it would otherwise start.
+   */
+  function tapDock(x, y) {
+    const plate = document.elementFromPoint(x, y)?.closest('.plate');
+    const id = plate?.dataset.screen;
+    if (!id || !navScreens.has(id)) return false;
+    if (cam.z >= fitOf(placed.get(id), safeBox(vp(), 'right', false)) * DOCK_MIN) return false;
+    dock(id);
+    return true;
+  }
   stage.addEventListener('pointerdown', e => {
     if (e.button === 3) return histGo(-1);
     if (e.button === 4) return histGo(1);
@@ -785,10 +799,14 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     cam.y = drag.cy - (e.clientY - drag.y) / cam.z;
     render(); freeMode();
   });
-  window.addEventListener('pointerup', () => {
+  window.addEventListener('pointerup', e => {
     const was = drag; drag = null;
     stage.classList.remove('dragging');
-    if (was) freeMode();
+    if (!was) return;
+    // A tap, not a pan: the pointer barely moved. If it landed on a zoomable
+    // screenshot, fly to its step and skip the settle (dock already framed it).
+    if (Math.hypot(e.clientX - was.x, e.clientY - was.y) < 4 && tapDock(e.clientX, e.clientY)) return;
+    freeMode();
   });
   stage.addEventListener('wheel', e => {
     e.preventDefault();
