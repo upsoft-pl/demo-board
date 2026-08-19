@@ -262,6 +262,44 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       return wrap;
     };
 
+    /**
+     * A "Size" slider for a screen's display scale — the reliable, zoom-proof way
+     * to resize (the canvas corner-handles are off-screen when a screen is large).
+     * Live-previews without piling up undo history: it mutates the board directly
+     * while dragging and commits a single step on release, like the canvas drags.
+     */
+    const sizeControl = (s, g) => {
+      const pct = v => `${Math.round(v * 100)}%`;
+      const rng = el('input');
+      rng.type = 'range';
+      rng.min = String(Math.round(SCALE_MIN * 100));
+      rng.max = String(Math.round(SCALE_MAX * 100));
+      rng.step = '1';
+      rng.value = String(Math.round((s.scale ?? 1) * 100));
+      rng.dataset.testid = 'screen-size';
+      const lbl = el('span', 'size-val', pct(s.scale ?? 1));
+      let pre = null;                                   // board before this slide
+      rng.oninput = () => {
+        if (pre === null) pre = board;
+        board = scaleScreen(board, s.id, +rng.value / 100);   // live, uncommitted
+        lbl.textContent = `${rng.value}%`;
+        renderCanvas();
+      };
+      const settle = () => {
+        if (pre === null) return;
+        const moved = scaleScreen(pre, s.id, +rng.value / 100);
+        board = pre; pre = null;
+        commit(moved);                                  // one undo entry per slide
+      };
+      rng.onchange = settle;
+      const row = el('div', 'size-row');
+      row.appendChild(rng); row.appendChild(lbl);
+      return field('Size', row,
+        g.layout === 'manual'
+          ? 'Drag to resize this screenshot — or drag a corner handle on the canvas.'
+          : 'Resize this screenshot relative to the others in the grid.');
+    };
+
     if (sel.kind === 'group' && selGroup()) {
       const g = selGroup();
       add(el('div', 'phead', '<span>Group</span>'));
@@ -310,6 +348,7 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         v => commit(updateScreen(board, s.id, { keywords: v.split(',').map(x => x.trim()).filter(Boolean) }), { silent: true })),
         'Comma separated. These outrank anything read from the image itself.'));
       add(field('Source', el('div', 'hint', `${esc(s.src)}<br>${s.w}×${s.h}px`)));
+      add(sizeControl(s, g));
       add(field('Background', bgControl(s.background ?? null,
         v => commit(setScreenBackground(board, s.id, v)),
         { inherit: board.screenBackground ?? DEFAULT_SCREEN_BG }),
@@ -575,6 +614,8 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     const v = vp();
     cworld.style.transform =
       `translate(${v.w / 2}px,${v.h / 2}px) scale(${cam.z}) translate(${-cam.x}px,${-cam.y}px)`;
+    // keep the resize handles a constant screen size against the camera zoom
+    cworld.style.setProperty('--rhi', String(1 / cam.z));
   }
   function fitCanvas() {
     const v = vp();

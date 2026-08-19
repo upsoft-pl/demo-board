@@ -1155,3 +1155,45 @@ test('double-clicking a resize handle resets the screen to 1×', async ({ page }
   await page.getByTestId('resize-se').dblclick();
   expect('scale' in (await doc(page)).groups[0].screens[0]).toBe(false);
 });
+
+test('the inspector Size slider resizes a screen (works at any zoom) and is undoable', async ({ page }) => {
+  // stays in auto layout on purpose: the slider is the resize path that does not
+  // depend on the canvas corner-handles being on screen.
+  await boardWithScreen(page);
+  await page.locator('[data-testid="canvas-screen"]').click();
+  const slider = page.getByTestId('screen-size');
+  await expect(slider).toBeVisible();
+  await slider.evaluate(el => {
+    el.value = '250';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect((await doc(page)).groups[0].screens[0].scale).toBeCloseTo(2.5, 5);
+
+  await page.locator('#undo').click();
+  expect((await doc(page)).groups[0].screens[0].scale ?? 1).toBe(1);   // one undo entry
+});
+
+test('resize handles keep a constant screen size as the camera zooms out', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('group-header').first().click();
+  await page.getByTestId('group-layout').selectOption('manual');
+  await page.locator('[data-testid="canvas-screen"]').click();
+
+  const se = page.getByTestId('resize-se');
+  const plate = page.locator('[data-testid="canvas-screen"]');
+  const handleBefore = await se.boundingBox();
+  const plateBefore = await plate.boundingBox();
+
+  await page.locator('#canvas').evaluate(cv => {
+    const r = cv.getBoundingClientRect();
+    for (let i = 0; i < 3; i++) cv.dispatchEvent(new WheelEvent('wheel',
+      { deltaY: 300, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+  });
+
+  const handleAfter = await se.boundingBox();
+  const plateAfter = await plate.boundingBox();
+  expect(plateAfter.width).toBeLessThan(plateBefore.width - 20);        // the screen shrank
+  expect(Math.abs(handleAfter.width - handleBefore.width)).toBeLessThan(4);  // the handle did not
+  expect(handleAfter.width).toBeGreaterThan(10);                        // still grabbable
+});
