@@ -118,9 +118,12 @@ body.close .plate-tag{opacity:0}
    sibling <div> layers — without an explicit size it collapses and clips every
    leader line. No viewBox: paths use absolute viewport-pixel coordinates. */
 #leaders{position:fixed;inset:0;width:100vw;height:100vh;z-index:20;pointer-events:none}
-#leaders path{fill:none;stroke:var(--accent);stroke-width:1.25;opacity:.72;
+#leaders path{fill:none;stroke:var(--accent);stroke-width:1;opacity:.72;
+  stroke-linejoin:round;stroke-linecap:round;
   stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
-  animation:draw .55s cubic-bezier(.4,0,.2,1) forwards;animation-delay:var(--d)}
+  /* ease-in-out: the line eases out of the rect, races the middle, settles into
+     the note — slow, fast, slow */
+  animation:draw .55s cubic-bezier(.65,0,.35,1) forwards;animation-delay:var(--d)}
 @keyframes draw{to{stroke-dashoffset:0}}
 #leaders circle{fill:var(--accent);opacity:0;animation:dot .3s ease forwards;
   animation-delay:calc(var(--d) + .45s)}
