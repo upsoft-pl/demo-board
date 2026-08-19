@@ -77,7 +77,7 @@ const richText = s => String(s ?? '')
  *   Published sites resolve against baseUrl; the editor hands back blob URLs
  *   for images living in OPFS, which have no meaningful path.
  */
-export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
+export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, initialCam = null }) {
   const srcOf = resolveSrc || (s => `${baseUrl}${s}`);
   /* ── document ────────────────────────────────────────────────────────── */
   const migrated = migrateBoard(raw);
@@ -545,6 +545,19 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     const g = board.groups[(gi + board.groups.length) % board.groups.length];
     if (g?.steps.length) goto(g.id, g.steps[0].id);
   }
+  // Adopt a step as current WITHOUT moving the camera or revealing notes — used
+  // when preview opens on the layout viewport (literal camera). Story state
+  // (ref, accent, caption, HUD) tracks the screen you're already looking at, so
+  // ←/→ continue from here and ↵ can frame it.
+  function syncRef(groupId, stepId) {
+    const r = resolveStep(board, groupId, stepId);
+    if (!r) return;
+    const { group, step, si } = r;
+    ref = { groupId: group.id, stepId: step.id };
+    applyAccent(group);
+    paintCaption(group, step, si);
+    paintHud(group, si);
+  }
   function stepBy(d) {
     const r = resolveStep(board, ref.groupId, ref.stepId);
     if (!r) return;
@@ -577,14 +590,21 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
     return bestR > DOCK_MIN ? { id: best, ratio: bestR } : null;
   }
   const setDockable = id => { dockable = id; dockChip.classList.toggle('on', !!id); };
-  function dock(screenId) {
-    setDockable(null);
+  // The step to make current for a screen: the first step that frames it, or —
+  // for a screen no step points at yet — the group's opening step, so docking
+  // always lands somewhere playable.
+  function stepForScreen(screenId) {
     for (const g of board.groups) {
       if (!g.screens.some(s => s.id === screenId)) continue;
       const st = g.steps.find(s => s.screen === screenId) || g.steps[0];
-      if (st) goto(g.id, st.id);
-      return;
+      return st ? { group: g, step: st } : null;
     }
+    return null;
+  }
+  function dock(screenId) {
+    setDockable(null);
+    const hit = stepForScreen(screenId);
+    if (hit) goto(hit.group.id, hit.step.id);
   }
   function settle() {
     if (drag) return;
@@ -822,7 +842,24 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc }) {
   return {
     board,
     start() {
-      if (first?.steps.length) goto(first.id, first.steps[0].id);
+      if (initialCam) {
+        // Open on the layout viewport instead of the opening step: same region,
+        // same zoom. Then, for whatever screen is centred — if it is already
+        // reasonably framed (ratio within the dock band) fly the short distance
+        // into that step so its notes reveal (auto-frame); if you are zoomed in
+        // tighter than the frame, stay put and just adopt it as the current step
+        // (↵ frames it); if nothing is centred (zoomed out over the board) leave
+        // ref at the opening step so → still starts the story.
+        cam = { ...initialCam };
+        render();
+        const n = nearest();
+        const hit = n && stepForScreen(n.id);
+        if (!hit) caption.classList.add('fade');
+        else if (n.ratio <= DOCK_MAX) goto(hit.group.id, hit.step.id);
+        else { syncRef(hit.group.id, hit.step.id); caption.classList.remove('fade'); setDockable(n.id); }
+      } else if (first?.steps.length) {
+        goto(first.id, first.steps[0].id);
+      }
       buildThumbs();               // async: generate LOD copies, then applyLOD()
     },
     /* test + editor surface */
