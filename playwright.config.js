@@ -1,6 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { ports } from './scripts/ports.js';
 
 const CI = !!process.env.CI;
+// Per-worktree ports (see scripts/ports.js): main checkout stays on 5174/5175.
+const { e2e: E2E_PORT, preview: PREVIEW_PORT } = ports();
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -17,7 +20,7 @@ export default defineConfig({
     {
       name: 'dev',
       testIgnore: /build\.spec\.js/,
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:5174' },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${E2E_PORT}` },
     },
     {
       /*
@@ -29,19 +32,19 @@ export default defineConfig({
        */
       name: 'build',
       testMatch: /build\.spec\.js/,
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:5175' },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${PREVIEW_PORT}` },
     },
   ],
   webServer: [
     {
-      command: 'npx vite --port 5174 --strictPort',
-      url: 'http://localhost:5174',
+      command: `npx vite --port ${E2E_PORT} --strictPort`,
+      url: `http://localhost:${E2E_PORT}`,
       reuseExistingServer: !CI,
       timeout: 60_000,
     },
     {
-      command: 'npm run build && npx vite preview --port 5175 --strictPort',
-      url: 'http://localhost:5175',
+      command: `npm run build && npx vite preview --port ${PREVIEW_PORT} --strictPort`,
+      url: `http://localhost:${PREVIEW_PORT}`,
       reuseExistingServer: !CI,
       timeout: 120_000,
     },

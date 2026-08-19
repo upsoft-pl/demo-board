@@ -1,9 +1,14 @@
 import { defineConfig } from 'vite';
+import { ports } from './scripts/ports.js';
 
 export default defineConfig({
   // Relative base so the same build works on GitHub Pages (project path),
   // on S3, and from a plain `vite preview`.
   base: './',
+  // Dev port is derived per-worktree (see scripts/ports.js). strictPort so a
+  // busy port fails loudly instead of silently drifting onto another
+  // worktree's server — deterministic ports are the whole point of the split.
+  server: { port: ports().dev, strictPort: true },
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -22,7 +27,7 @@ export default defineConfig({
     // could tell us about geometry would be a lie. Geometry is asserted for
     // real in tests/e2e. This tier is pure arithmetic and stays sub-second.
     environment: 'node',
-    include: ['src/**/*.test.js'],
+    include: ['src/**/*.test.js', 'scripts/**/*.test.js'],
     reporters: 'dot',
   },
 });

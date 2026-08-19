@@ -1,0 +1,191 @@
+#!/usr/bin/env node
+// Worktree helper for demo-board. Each worktree gets its own block of three
+// ports (dev / e2e / e2e-preview) so dev servers and e2e runs never collide
+// across worktrees — the base is written to a gitignored .worktree.json that
+// scripts/ports.js reads. Deliberately small: this is a static Vite project, so
+// there is no database, no Docker, no .env to provision — the only real setup
+// cost is `npm install`, since node_modules is per-worktree.
+
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readdirSync } from 'node:fs';
+
+const WORKTREES_DIR = 'worktrees';
+const BASE_PORT = 5173; // main checkout; worktrees start one step above
+const STEP = 10; // ports per worktree, with headroom (block is 3 wide)
+const MAIN_BRANCH = 'main';
+
+const C = {
+  red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m', cyan: '\x1b[36m', reset: '\x1b[0m',
+};
+
+function die(msg) {
+  console.error(`${C.red}Error:${C.reset} ${msg}`);
+  process.exit(1);
+}
+
+// git, quiet — returns trimmed stdout, throws on failure.
+function git(args, opts = {}) {
+  return execFileSync('git', args, { encoding: 'utf8', ...opts }).trim();
+}
+
+// Tracked modifications (staged or unstaged) vs HEAD. Untracked files don't
+// count — they're usually scratch, and `git worktree remove` backstops them.
+function hasTrackedChanges(cwd) {
+  try {
+    execFileSync('git', ['diff', '--quiet', 'HEAD'], { cwd, stdio: 'ignore' });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function ensureRepoRoot() {
+  if (!existsSync('.git')) die('must be run from the repository root');
+}
+
+function validateName(name) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) {
+    die('name must start with a letter or number and contain only letters, numbers, "-" and "_"');
+  }
+}
+
+function branchExists(name) {
+  try {
+    git(['show-ref', '--verify', '--quiet', `refs/heads/${name}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Bases already claimed by existing worktrees, read from their .worktree.json.
+function usedBases() {
+  if (!existsSync(WORKTREES_DIR)) return new Set();
+  const bases = new Set();
+  for (const entry of readdirSync(WORKTREES_DIR, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = join(WORKTREES_DIR, entry.name, '.worktree.json');
+    try {
+      bases.add(JSON.parse(readFileSync(file, 'utf8')).port);
+    } catch {
+      // no marker (partial/foreign dir) — ignore
+    }
+  }
+  return bases;
+}
+
+// Lowest free base at or above the first worktree slot.
+function nextBase() {
+  const used = usedBases();
+  let base = BASE_PORT + STEP;
+  while (used.has(base)) base += STEP;
+  return base;
+}
+
+function create(name) {
+  if (!name) die('please specify a worktree name — usage: bin/worktree create <name>');
+  validateName(name);
+  if (branchExists(name)) die(`branch '${name}' already exists`);
+
+  const path = join(WORKTREES_DIR, name);
+  if (existsSync(path)) die(`directory ${path} already exists`);
+
+  const base = nextBase();
+  const { dev, e2e, preview } = { dev: base, e2e: base + 1, preview: base + 2 };
+
+  console.log(`Creating worktree ${C.cyan}${name}${C.reset} (ports ${dev}/${e2e}/${preview})`);
+  execFileSync('git', ['worktree', 'add', '-b', name, path], { stdio: 'inherit' });
+
+  writeFileSync(join(path, '.worktree.json'), `${JSON.stringify({ port: base }, null, 2)}\n`);
+
+  console.log('Installing dependencies…');
+  execFileSync('npm', ['install'], { cwd: path, stdio: 'inherit' });
+
+  console.log(`\n${C.green}Worktree '${name}' ready.${C.reset}`);
+  console.log(`  Path:    ${path}`);
+  console.log(`  Branch:  ${name}`);
+  console.log(`  Ports:   dev ${dev} · e2e ${e2e} · preview ${preview}`);
+  console.log(`\n  cd ${path}`);
+  console.log(`  npm run dev        # http://localhost:${dev}`);
+  console.log('  npm run test:e2e');
+}
+
+function list() {
+  const raw = git(['worktree', 'list', '--porcelain']);
+  const rows = [];
+  let cur = {};
+  for (const line of raw.split('\n')) {
+    if (line.startsWith('worktree ')) cur = { path: line.slice('worktree '.length) };
+    else if (line.startsWith('branch ')) cur.branch = line.slice('branch '.length).replace('refs/heads/', '');
+    else if (line === '') { if (cur.path) rows.push(cur); cur = {}; }
+  }
+  if (cur.path) rows.push(cur);
+
+  for (const r of rows) {
+    let port = BASE_PORT;
+    try {
+      port = JSON.parse(readFileSync(join(r.path, '.worktree.json'), 'utf8')).port;
+    } catch {
+      // main checkout / no marker → default base
+    }
+    const branch = r.branch ? `[${r.branch}]` : '(detached)';
+    console.log(`  ${C.cyan}${String(port).padEnd(6)}${C.reset} ${branch.padEnd(24)} ${r.path}`);
+  }
+}
+
+function destroy(name, force) {
+  if (!name) die('please specify a worktree name — usage: bin/worktree destroy <name>');
+  validateName(name);
+
+  const path = join(WORKTREES_DIR, name);
+  if (!existsSync(path)) die(`worktree ${path} does not exist`);
+
+  if (!force && hasTrackedChanges(path)) {
+    die('worktree has uncommitted changes — use --force to override');
+  }
+
+  // Always refuse to drop a branch with work not yet merged into main.
+  const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: path });
+  const merged = git(['branch', '--merged', MAIN_BRANCH], { cwd: path })
+    .split('\n').map((l) => l.replace('*', '').trim());
+  if (!merged.includes(current)) {
+    die(`branch '${current}' has commits not merged into ${MAIN_BRANCH} — merge or rebase first`);
+  }
+
+  console.log(`Removing worktree ${C.cyan}${name}${C.reset}`);
+  execFileSync('git', ['worktree', 'remove', ...(force ? ['--force'] : []), path], { stdio: 'inherit' });
+  execFileSync('git', ['branch', '-d', name], { stdio: 'inherit' });
+  console.log(`${C.green}Worktree '${name}' destroyed.${C.reset}`);
+}
+
+function usage() {
+  console.log(`Usage: bin/worktree <command> [options]
+
+Commands:
+  create <name>            Create a worktree in worktrees/<name> with its own port block
+  list                     List worktrees and their dev ports
+  destroy <name> [--force] Remove a worktree and delete its branch (aliases: remove, delete)
+
+  --force  destroy: drop despite uncommitted changes (still refuses unmerged branches)`);
+}
+
+function main() {
+  ensureRepoRoot();
+  const [command, ...rest] = process.argv.slice(2);
+  const force = rest.includes('--force');
+  const positional = rest.filter((a) => !a.startsWith('--'));
+
+  switch (command) {
+    case 'create': create(positional[0]); break;
+    case 'list': list(); break;
+    case 'destroy': case 'remove': case 'delete': destroy(positional[0], force); break;
+    default:
+      if (command) console.error(`${C.red}Unknown command:${C.reset} ${command}\n`);
+      usage();
+      process.exit(command ? 1 : 0);
+  }
+}
+
+main();

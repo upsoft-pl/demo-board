@@ -1,6 +1,9 @@
 node_modules/
+worktrees/
+.worktree.json
 dist/
 test-results/
 playwright-report/
 .DS_Store
 *.local
+.claude-allow-master
