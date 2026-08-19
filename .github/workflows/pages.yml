@@ -39,14 +39,15 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw.outputs.v }}
-      - name: Install Chromium + system deps
+      # No `--with-deps`: that runs apt-get inside the step, and the runner's
+      # Azure Ubuntu mirror stalled `apt-get update` for 8+ min (twice, run
+      # 32235291730). ubuntu-latest already ships Chromium's shared libs, so
+      # install the browser only and skip apt entirely. If e2e ever fails on a
+      # missing library, add a targeted `sudo apt-get install -y <lib>` here.
+      - name: Install Chromium (browser only)
         if: steps.pw-cache.outputs.cache-hit != 'true'
         timeout-minutes: 8
-        run: npx playwright install --with-deps chromium
-      - name: Install system deps (browser already cached)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
-        timeout-minutes: 8
-        run: npx playwright install-deps chromium
+        run: npx playwright install chromium
       - name: e2e (playwright — real layout)
         run: npm run test:e2e
       - uses: actions/upload-artifact@v4
