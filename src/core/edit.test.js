@@ -4,7 +4,7 @@ import {
   addScreen, updateScreen, moveScreen, reorderScreens, deleteScreen,
   addStep, updateStep, reorderSteps, deleteStep,
   addNote, updateNote, reorderNotes, deleteNote, normalizeRect,
-  createBoard, setBoardTitle, setBoardBackground, setScreenBackground,
+  createBoard, setBoardTitle, setBoardBackground, setScreenBackground, setBrand,
   applyHandle, moveRect, remapRect, normalizeCrop, setScreenCrop,
   replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
   scaleScreen, SCALE_MIN, SCALE_MAX,
@@ -685,5 +685,34 @@ describe('board', () => {
     const out = setBoardTitle(b, 'Renamed');
     expect(out.title).toBe('Renamed');
     expect(out.groups).toEqual(b.groups);
+  });
+});
+
+describe('brand', () => {
+  it('sets a logo and clamped opacity, staying valid', () => {
+    const { b } = seed();
+    const out = setBrand(b, { logo: 'images/logo.svg', opacity: 0.6 });
+    expect(out.brand).toEqual({ logo: 'images/logo.svg', opacity: 0.6 });
+    expect(validateBoard(out).ok).toBe(true);
+    expect(b.brand).toBeUndefined();               // input untouched
+  });
+
+  it('drops opacity out of range into 0..1', () => {
+    const { b } = seed();
+    expect(setBrand(b, { logo: 'images/l.svg', opacity: 5 }).brand.opacity).toBe(1);
+    expect(setBrand(b, { logo: 'images/l.svg', opacity: -3 }).brand.opacity).toBe(0);
+  });
+
+  it('omits opacity when none is given', () => {
+    const { b } = seed();
+    expect(setBrand(b, { logo: 'images/l.svg' }).brand).toEqual({ logo: 'images/l.svg' });
+  });
+
+  it('removes the brand entirely when logo is null', () => {
+    const { b } = seed();
+    const withBrand = setBrand(b, { logo: 'images/l.svg', opacity: 0.5 });
+    const out = setBrand(withBrand, { logo: null });
+    expect(out.brand).toBeUndefined();
+    expect(validateBoard(out).ok).toBe(true);
   });
 });

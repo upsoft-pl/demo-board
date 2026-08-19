@@ -30,6 +30,11 @@ describe('referencedImages', () => {
   it('lists each image once, without the images/ prefix', () => {
     expect(referencedImages(sample()).sort()).toEqual(['inbox.png', 'issue.png']);
   });
+
+  it('includes the brand logo so publishing carries it', () => {
+    const b = { ...sample(), brand: { logo: 'images/logo.svg', opacity: 0.6 } };
+    expect(referencedImages(b).sort()).toEqual(['inbox.png', 'issue.png', 'logo.svg']);
+  });
 });
 
 describe('exportBoard', () => {
@@ -52,6 +57,18 @@ describe('exportBoard', () => {
     const b = sample();
     await expect(exportBoard(b, reader({ 'inbox.png': IMAGES['inbox.png'] })))
       .rejects.toThrow(/1 image\(s\) missing/);
+  });
+
+  it('packs the brand logo alongside the screenshots', async () => {
+    const b = { ...sample(), brand: { logo: 'images/logo.svg' } };
+    const bag = { ...IMAGES, 'logo.svg': new Uint8Array([7, 8, 9]) };
+    const files = unzipSync(await exportBoard(b, reader(bag)));
+    expect(files['images/logo.svg']).toEqual(bag['logo.svg']);
+  });
+
+  it('refuses to export when the brand logo is missing from storage', async () => {
+    const b = { ...sample(), brand: { logo: 'images/logo.svg' } };
+    await expect(exportBoard(b, reader())).rejects.toThrow(/1 image\(s\) missing/);
   });
 });
 

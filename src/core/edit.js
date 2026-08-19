@@ -411,6 +411,21 @@ export const setBoardTitle = (board, title) => ({ ...clone(board), title });
 /** Board-wide default backing for screenshots with transparency. */
 export const setBoardBackground = (board, color) => ({ ...clone(board), screenBackground: color });
 
+/**
+ * Presenter branding shown in the player's corner mark, in place of the ◆ glyph.
+ * `logo` is a board image reference (images/…); pass a null/absent logo to
+ * remove the brand entirely. `opacity` is CSS-level and clamped to 0..1; when
+ * absent the logo renders fully opaque. Kept minimal so an absent brand is the
+ * old, unbranded document byte-for-byte.
+ */
+export function setBrand(board, { logo, opacity } = {}) {
+  const b = clone(board);
+  if (logo == null) { delete b.brand; return b; }
+  b.brand = { logo };
+  if (opacity != null) b.brand.opacity = Math.min(1, Math.max(0, opacity));
+  return b;
+}
+
 /** Per-screen override. Pass null to fall back to the board default. */
 export function setScreenBackground(board, screenId, color) {
   const b = clone(board);

@@ -72,6 +72,15 @@ export function validateBoard(board) {
   if (board.version > CURRENT_VERSION) at('version', `${board.version} is newer than supported (${CURRENT_VERSION})`);
   if (board.screenBackground != null && !isColor(board.screenBackground))
     at('screenBackground', `"${board.screenBackground}" is not an accepted colour`);
+  if (board.brand != null) {
+    const br = board.brand;
+    if (typeof br !== 'object') at('brand', 'must be an object');
+    else {
+      if (typeof br.logo !== 'string' || !br.logo) at('brand', 'logo must be a non-empty string');
+      if (br.opacity != null && (typeof br.opacity !== 'number' || br.opacity < 0 || br.opacity > 1))
+        at('brand', 'opacity must be a number in 0..1');
+    }
+  }
   if (!Array.isArray(board.groups)) return { ok: false, errors: [...errors, 'groups: not an array'] };
 
   const groupIds = new Set();

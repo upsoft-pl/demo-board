@@ -1197,3 +1197,28 @@ test('resize handles keep a constant screen size as the camera zooms out', async
   expect(Math.abs(handleAfter.width - handleBefore.width)).toBeLessThan(4);  // the handle did not
   expect(handleAfter.width).toBeGreaterThan(10);                        // still grabbable
 });
+
+// A minimal valid 1×1 PNG, enough to exercise the real File → putImage path.
+const PNG_1PX = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64');
+
+test('uploading a brand logo shows it in the board inspector and drops into the document', async ({ page }) => {
+  await newBoard(page);                                    // nothing selected → the Board panel
+
+  await expect(page.getByTestId('brand-upload')).toBeVisible();
+  await page.getByTestId('brand-file').setInputFiles(
+    { name: 'logo.png', mimeType: 'image/png', buffer: PNG_1PX });
+
+  // the control switches to preview + opacity + remove, and the doc carries it
+  await expect(page.getByTestId('brand-preview')).toBeVisible();
+  await expect(page.getByTestId('brand-opacity')).toBeVisible();
+  const brand = await page.evaluate(() => window.__editor.board.brand);
+  expect(brand.logo).toMatch(/^images\//);
+  expect(brand.opacity).toBe(1);
+
+  // removing it clears the brand and restores the upload button
+  await page.getByTestId('brand-remove').click();
+  await expect(page.getByTestId('brand-upload')).toBeVisible();
+  expect(await page.evaluate(() => window.__editor.board.brand)).toBeUndefined();
+});

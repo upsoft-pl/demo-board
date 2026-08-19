@@ -210,8 +210,12 @@ body.close .plate-tag{opacity:0}
 .sep{width:1px;height:20px;background:rgba(255,255,255,.1);margin:0 3px}
 
 #mark{position:fixed;top:26px;left:28px;z-index:55;font-family:var(--mono);font-size:10.5px;
-  letter-spacing:.2em;text-transform:uppercase;color:#3E4657}
+  letter-spacing:.2em;text-transform:uppercase;color:#3E4657;
+  display:flex;align-items:center;gap:9px}
 #mark s{color:var(--accent);text-decoration:none}
+/* Brand logo stands in for the ◆ — capped in height, aspect kept, never taller
+   than the mark's line so a big upload can't blow out the corner. */
+#mark img{height:20px;width:auto;max-width:160px;object-fit:contain;display:block}
 #help{position:fixed;top:24px;right:26px;z-index:55;font-family:var(--mono);font-size:10.5px;
   line-height:1.9;color:#3E4657;text-align:right;letter-spacing:.04em;transition:opacity .3s}
 #help.dim{opacity:.25}

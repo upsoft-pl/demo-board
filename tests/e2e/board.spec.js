@@ -307,3 +307,18 @@ test('a missing board file reports the URL rather than hanging', async ({ page }
   await page.goto(PLAYER);
   await expect(page.locator('#fatal')).toContainText('Could not load the board');
 });
+
+test('a brand logo takes the corner mark, keeping the title, at its set opacity', async ({ page }) => {
+  await page.route('**/sample/board.json', async route => {
+    const board = await (await route.fetch()).json();
+    board.brand = { logo: 'images/branding.svg', opacity: 0.7 };
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(board) });
+  });
+  await page.goto(PLAYER);
+  const img = page.locator('#mark img');
+  await expect(img).toBeVisible();
+  expect(await img.evaluate(el => el.naturalWidth), 'the logo actually decoded').toBeGreaterThan(0);
+  await expect(img).toHaveCSS('opacity', '0.7');
+  await expect(page.locator('#mark s')).toHaveCount(0);              // the ◆ is gone
+  await expect(page.locator('#mark span')).toHaveText('Acme — client demo');   // title stays
+});
