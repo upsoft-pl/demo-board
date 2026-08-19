@@ -65,6 +65,18 @@ describe('validateBoard', () => {
     expect(validateBoard(b).errors.join()).toMatch(/duplicate step id/);
   });
 
+  it('accepts a positive display scale on a screen', () => {
+    const b = good();
+    b.groups[0].screens[0].scale = 0.5;
+    expect(validateBoard(b)).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects a non-positive scale — a screen cannot collapse to nothing', () => {
+    const b = good();
+    b.groups[0].screens[0].scale = 0;
+    expect(validateBoard(b).errors.join()).toMatch(/scale must be positive/);
+  });
+
   it('rejects a note on an overview step — nothing to point at', () => {
     const b = good();
     b.groups[0].steps[2].notes = [{ id: 'n', text: 'x', rect: { x: 0, y: 0, w: 0.1, h: 0.1 } }];

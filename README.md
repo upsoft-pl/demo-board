@@ -34,7 +34,8 @@ A published board is `player.html` renamed to `index.html`, sitting next to its
       "id": "s_inbox", "name": "The pile",
       "src": "images/inbox.png", "w": 2560, "h": 1600,   // intrinsic px
       "keywords": ["intake", "triage"],
-      "pos": { "x": 0, "y": 0 }          // read only when layout = "manual"
+      "pos": { "x": 0, "y": 0 },         // read only when layout = "manual"
+      "scale": 1                         // optional display size, 0.25–4; absent = 1×
     }],
     "steps": [{
       "id": "st_input", "screen": "s_inbox",   // null = group overview step

@@ -17,12 +17,18 @@ export const FULL_CROP = { x: 0, y: 0, w: 1, h: 1 };
 export const cropOf = screen => screen?.crop ?? FULL_CROP;
 
 /**
- * The size a screen actually occupies on the board. Cropping changes it, so
- * layout must ask for this rather than reading w/h directly.
+ * The size a screen actually occupies on the board. Cropping changes it and a
+ * per-screen display `scale` (default 1) rescales it — both are absent for a
+ * pristine screen — so layout must ask for this rather than reading w/h
+ * directly. Scale is uniform, so the aspect ratio is preserved.
  */
 export function effectiveSize(screen) {
   const c = cropOf(screen);
-  return { w: Math.max(1, Math.round(screen.w * c.w)), h: Math.max(1, Math.round(screen.h * c.h)) };
+  const scale = screen?.scale ?? 1;
+  return {
+    w: Math.max(1, Math.round(screen.w * c.w * scale)),
+    h: Math.max(1, Math.round(screen.h * c.h * scale)),
+  };
 }
 
 /**
@@ -88,6 +94,7 @@ export function validateBoard(board) {
       else { screenIds.add(s.id); localScreens.add(s.id); }
       if (!s.src) at(sp, 'missing src');
       if (!(s.w > 0) || !(s.h > 0)) at(sp, 'w/h must be positive (intrinsic pixel size)');
+      if (s.scale != null && !(s.scale > 0)) at(sp, 'scale must be positive');
       if (g.layout === 'manual' && !s.pos) at(sp, 'manual layout requires pos {x,y}');
       if (s.background != null && !isColor(s.background))
         at(sp, `background "${s.background}" is not an accepted colour`);
