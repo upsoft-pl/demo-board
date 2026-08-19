@@ -18,6 +18,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A healthy run is ~4 min; a stalled Playwright/apt install once hung until
+    # the 6h default. Fail fast instead so a transient stall is retryable.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,7 +28,25 @@ jobs:
       - run: npm ci
       - name: unit (vitest — pure logic)
         run: npm test
-      - run: npx playwright install --with-deps chromium
+      - name: Playwright version
+        id: pw
+        run: echo "v=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      # Cache the browser binary (~100MB) so a slow CDN can't stall every run.
+      # apt system libs live outside this cache, so they still install below.
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.v }}
+      - name: Install Chromium + system deps
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 8
+        run: npx playwright install --with-deps chromium
+      - name: Install system deps (browser already cached)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 8
+        run: npx playwright install-deps chromium
       - name: e2e (playwright — real layout)
         run: npm run test:e2e
       - uses: actions/upload-artifact@v4
@@ -40,6 +61,7 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
