@@ -1100,3 +1100,58 @@ test('the library says where boards are stored and that nothing is synced', asyn
   await expect(warn).toContainText(/nothing is synced/i);
   await expect(warn).toContainText(/cookies and other site data/i);
 });
+
+test('resize handles rescale a screen on the canvas, aspect-locked and undoable', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('group-header').first().click();
+  await page.getByTestId('group-layout').selectOption('manual');
+
+  // select the screen so its corner handles render
+  const plate = page.locator('[data-testid="canvas-screen"]');
+  await plate.click();
+
+  const before = (await doc(page)).groups[0].screens[0];
+  expect(before.scale ?? 1).toBe(1);
+  const box0 = await plate.boundingBox();
+
+  // drag the south-east handle outward — the top-left corner is the anchor
+  const hd = page.getByTestId('resize-se');
+  await expect(hd).toBeVisible();
+  const hb = await hd.boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + 160, hb.y + 160, { steps: 10 });
+  await page.mouse.up();
+
+  const after = (await doc(page)).groups[0].screens[0];
+  expect(after.scale).toBeGreaterThan(1);
+  expect(after.w).toBe(before.w);            // intrinsic pixels untouched
+  expect(after.h).toBe(before.h);
+
+  const box1 = await plate.boundingBox();
+  expect(box1.width).toBeGreaterThan(box0.width + 5);
+  expect(box1.width / box1.height).toBeCloseTo(box0.width / box0.height, 1);  // aspect kept
+  expect(Math.abs(box1.x - box0.x)).toBeLessThan(3);      // top-left corner stayed anchored
+  expect(Math.abs(box1.y - box0.y)).toBeLessThan(3);
+
+  await page.locator('#undo').click();
+  const undone = (await doc(page)).groups[0].screens[0];
+  expect(undone.scale ?? 1).toBe(1);         // one undo entry restores the size
+});
+
+test('double-clicking a resize handle resets the screen to 1×', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.getByTestId('group-header').first().click();
+  await page.getByTestId('group-layout').selectOption('manual');
+  await page.locator('[data-testid="canvas-screen"]').click();
+
+  const hb = await page.getByTestId('resize-se').boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + 140, hb.y + 140, { steps: 8 });
+  await page.mouse.up();
+  expect((await doc(page)).groups[0].screens[0].scale).toBeGreaterThan(1);
+
+  await page.getByTestId('resize-se').dblclick();
+  expect('scale' in (await doc(page)).groups[0].screens[0]).toBe(false);
+});

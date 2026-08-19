@@ -12,6 +12,7 @@ import {
   addNote, updateNote, reorderNotes, deleteNote, normalizeRect,
   setBoardTitle, setBoardBackground, setScreenBackground, DEFAULT_COLORS,
   applyHandle, moveRect, setScreenCrop, replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
+  scaleScreen, SCALE_MIN, SCALE_MAX,
 } from '../core/edit.js';
 import { placeScreens, boundsOf, camForBox } from '../core/layout.js';
 import {
@@ -548,6 +549,18 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         // scale-and-offset the player applies — otherwise it just squashes
         d.innerHTML = `<img src="${srcOf(s.src)}" alt="" style="${cropStyle(s)}">
           <div class="cap">${esc(s.name)}</div>`;
+        // corner handles resize (rescale) the selected screen — manual only, where
+        // a position is stored to anchor the opposite corner against. They sit
+        // *inside* the box because .cscr clips (it hides a cropped image's overflow).
+        if (sel.screenId === s.id && g.layout === 'manual') {
+          for (const hd of ['nw', 'ne', 'se', 'sw']) {
+            const k = el('i', `rhd rhd-${hd}`);
+            k.dataset.resize = hd;
+            k.dataset.testid = `resize-${hd}`;
+            k.title = 'Drag to resize · double-click to reset';
+            d.appendChild(k);
+          }
+        }
         cworld.appendChild(d);
       }
     }
@@ -577,7 +590,20 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     paintCanvas();
   }
 
-  let cdrag = null, sdrag = null, gdrag = null;
+  // reset a screen to 1×, anchoring the corner opposite the double-clicked handle
+  // so it shrinks away from where you clicked, just as a resize drag would.
+  function resetScreenScale(rh) {
+    const id = rh.closest('.cscr').dataset.screenId, hd = rh.dataset.resize;
+    const { screen: s } = screenOf(id);
+    if ((s.scale ?? 1) === 1) return;
+    const c = cropOf(s), size = effectiveSize(s);
+    const w1 = Math.max(1, Math.round(s.w * c.w)), h1 = Math.max(1, Math.round(s.h * c.h));  // size at scale 1
+    const nx = (s.pos?.x ?? 0) + (hd.includes('w') ? size.w - w1 : 0);
+    const ny = (s.pos?.y ?? 0) + (hd.includes('n') ? size.h - h1 : 0);
+    commit(scaleScreen(board, id, 1, { x: nx, y: ny }));
+  }
+
+  let cdrag = null, sdrag = null, gdrag = null, rdrag = null;
   canvas.addEventListener('pointerdown', e => {
     const handle = e.target.dataset?.groupHandle;
     if (handle) {
@@ -585,6 +611,24 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       select({ kind: 'group', groupId: handle });
       gdrag = { id: handle, sx: e.clientX, sy: e.clientY,
                 ox: g.origin?.x ?? 0, oy: g.origin?.y ?? 0, pre: board };
+      try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
+      return;
+    }
+    // a resize handle must be tested before the plate itself: it lives inside the
+    // .cscr, so closest('.cscr') would otherwise start a move instead.
+    const rh = e.target.closest('.rhd');
+    if (rh) {
+      const id = rh.closest('.cscr').dataset.screenId;
+      const { group: g, screen: s } = screenOf(id);
+      const hd = rh.dataset.resize, c = cropOf(s);
+      const size = effectiveSize(s);
+      rdrag = {
+        id, handle: hd, sx: e.clientX, sy: e.clientY,
+        gx: g.origin?.x ?? 0, gy: g.origin?.y ?? 0,
+        ox: s.pos?.x ?? 0, oy: s.pos?.y ?? 0,
+        bw: s.w * c.w, bh: s.h * c.h,          // intrinsic × crop — size at scale 1
+        w0: size.w, h0: size.h, startScale: s.scale ?? 1, pre: board,
+      };
       try { canvas.setPointerCapture(e.pointerId); } catch { /* stray pointer */ }
       return;
     }
@@ -626,6 +670,27 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       }
       return;
     }
+    if (rdrag) {
+      const { handle: hd, w0, h0 } = rdrag;
+      // the grabbed corner moves with the pointer; the opposite corner is the
+      // anchor and stays put. Uniform scale: take the axis the pointer pulled
+      // furthest so the box always reaches the cursor and the aspect is kept.
+      const dx = (e.clientX - rdrag.sx) / cam.z * (hd.includes('w') ? -1 : 1);
+      const dy = (e.clientY - rdrag.sy) / cam.z * (hd.includes('n') ? -1 : 1);
+      const factor = Math.max((w0 + dx) / w0, (h0 + dy) / h0);
+      const scale = Math.min(SCALE_MAX, Math.max(SCALE_MIN, rdrag.startScale * factor));
+      const w1 = Math.max(1, Math.round(rdrag.bw * scale));
+      const h1 = Math.max(1, Math.round(rdrag.bh * scale));
+      const nx = rdrag.ox + (hd.includes('w') ? w0 - w1 : 0);   // anchor opposite corner
+      const ny = rdrag.oy + (hd.includes('n') ? h0 - h1 : 0);
+      board = scaleScreen(board, rdrag.id, scale, { x: nx, y: ny });   // live, uncommitted
+      const node = cworld.querySelector(`[data-screen-id="${rdrag.id}"]`);
+      if (node) {
+        node.style.left = `${Math.round(nx) + rdrag.gx}px`; node.style.top = `${Math.round(ny) + rdrag.gy}px`;
+        node.style.width = `${w1}px`; node.style.height = `${h1}px`;
+      }
+      return;
+    }
     if (sdrag) {
       const nx = sdrag.ox + (e.clientX - sdrag.sx) / cam.z;
       const ny = sdrag.oy + (e.clientY - sdrag.sy) / cam.z;
@@ -643,9 +708,16 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     // one undo entry per drag, not one per pointermove. The live drag mutated
     // `board` in place without touching undo, so rewind to the snapshot taken at
     // pointerdown — not undo.at(-1), which is the state *before* the drag began.
-    if (sdrag || gdrag) { const moved = board; board = (sdrag ?? gdrag).pre; commit(moved); }
-    sdrag = null; cdrag = null; gdrag = null;
+    if (sdrag || gdrag || rdrag) { const moved = board; board = (sdrag ?? gdrag ?? rdrag).pre; commit(moved); }
+    sdrag = null; cdrag = null; gdrag = null; rdrag = null;
     canvas.classList.remove('dragging');
+  });
+  // A resize drag captures the pointer to the canvas, so the browser retargets
+  // the following dblclick to the canvas too — hence resolve the handle by point
+  // rather than trusting e.target.
+  canvas.addEventListener('dblclick', e => {
+    const rh = document.elementFromPoint(e.clientX, e.clientY)?.closest('.rhd');
+    if (rh) resetScreenScale(rh);
   });
   canvas.addEventListener('wheel', e => {
     e.preventDefault();

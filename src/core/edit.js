@@ -146,6 +146,32 @@ export function moveScreen(board, screenId, pos) {
   return board;
 }
 
+/** A screen's display scale is clamped to this range: never a zero-area speck,
+ *  never an unbounded monster that swamps the canvas. */
+export const SCALE_MIN = 0.25;
+export const SCALE_MAX = 4;
+
+/**
+ * Rescale a screen's display size by a uniform factor, so mismatched-resolution
+ * screenshots can be brought to comparable sizes on the canvas. Unlike position,
+ * scale is meaningful in both layouts, so it lives on the screen and feeds
+ * effectiveSize — but a `pos` (the drag's opposite-corner anchor) is only
+ * honoured in manual layout, where positions are stored. Scale 1 is the default,
+ * so it is dropped from the document, mirroring how a full crop is dropped.
+ */
+export function scaleScreen(board, screenId, scale, pos) {
+  const b = clone(board);
+  for (const g of b.groups) {
+    const s = g.screens.find(x => x.id === screenId);
+    if (!s) continue;
+    const clamped = Math.min(SCALE_MAX, Math.max(SCALE_MIN, scale));
+    if (clamped === 1) delete s.scale; else s.scale = clamped;
+    if (pos && g.layout === 'manual') s.pos = { x: Math.round(pos.x), y: Math.round(pos.y) };
+    return b;
+  }
+  return board;
+}
+
 export function reorderScreens(board, groupId, from, to) {
   return withGroup(board, groupId, g => { g.screens = moveItem(g.screens, from, to); });
 }

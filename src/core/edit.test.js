@@ -7,6 +7,7 @@ import {
   createBoard, setBoardTitle, setBoardBackground, setScreenBackground,
   applyHandle, moveRect, remapRect, normalizeCrop, setScreenCrop,
   replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
+  scaleScreen, SCALE_MIN, SCALE_MAX,
 } from './edit.js';
 import { validateBoard, createIdFactory, resolveStep, effectiveSize } from './schema.js';
 import { placeScreens } from './layout.js';
@@ -448,6 +449,73 @@ describe('crop', () => {
     const untouched = resolveStep(b, g, t2).step.notes;
     const out = setScreenCrop(b, s1, { x: .1, y: .1, w: .5, h: .5 });
     expect(resolveStep(out, g, t2).step.notes).toEqual(untouched);
+  });
+});
+
+describe('scale', () => {
+  it('effectiveSize honours a scale factor', () => {
+    const { b, s1 } = seed();
+    const out = scaleScreen(b, s1, 2);
+    expect(effectiveSize(out.groups[0].screens[0])).toEqual({ w: 2560, h: 1600 });  // 2× of 1280×800
+  });
+
+  it('effectiveSize composes scale with crop', () => {
+    const { b, s1 } = seed();
+    const cropped = setScreenCrop(b, s1, { x: .25, y: .25, w: .5, h: .5 });   // 640×400
+    const out = scaleScreen(cropped, s1, 0.5);
+    expect(effectiveSize(out.groups[0].screens[0])).toEqual({ w: 320, h: 200 });
+  });
+
+  it('preserves the screenshot aspect ratio (uniform scale)', () => {
+    const { b, s1 } = seed();
+    const before = effectiveSize(b.groups[0].screens[0]);
+    const after = effectiveSize(scaleScreen(b, s1, 1.7).groups[0].screens[0]);
+    expect(after.w / after.h).toBeCloseTo(before.w / before.h, 6);
+  });
+
+  it('clamps below SCALE_MIN and above SCALE_MAX — fail fast, never collapse or explode', () => {
+    const { b, s1 } = seed();
+    expect(scaleScreen(b, s1, 0.001).groups[0].screens[0].scale).toBe(SCALE_MIN);
+    expect(scaleScreen(b, s1, 999).groups[0].screens[0].scale).toBe(SCALE_MAX);
+  });
+
+  it('drops the field entirely when scale returns to 1 (identity)', () => {
+    const { b, s1 } = seed();
+    const scaled = scaleScreen(b, s1, 2);
+    const reset = scaleScreen(scaled, s1, 1);
+    expect('scale' in reset.groups[0].screens[0]).toBe(false);
+  });
+
+  it('leaves note rects untouched — annotations are normalised, so scaling must not move them', () => {
+    const { b, g, s1, t1 } = seed();
+    const before = resolveStep(b, g, t1).step.notes.map(n => ({ ...n.rect }));
+    const out = scaleScreen(b, s1, 3);
+    const after = resolveStep(out, g, t1).step.notes.map(n => n.rect);
+    expect(after).toEqual(before);
+  });
+
+  it('repositions the anchor in manual layout when a pos is supplied', () => {
+    const { b, g, s1 } = seed();
+    const man = setGroupLayout(b, g, 'manual');
+    const out = scaleScreen(man, s1, 2, { x: 40.6, y: 12.2 });
+    expect(out.groups[0].screens[0].pos).toEqual({ x: 41, y: 12 });
+  });
+
+  it('ignores a pos in auto layout — position is derived there, not stored', () => {
+    const { b, s1 } = seed();
+    const out = scaleScreen(b, s1, 2, { x: 40, y: 12 });
+    expect('pos' in out.groups[0].screens[0]).toBe(false);
+  });
+
+  it('is a no-op for an unknown screen id', () => {
+    const { b } = seed();
+    expect(scaleScreen(b, 'nope', 2)).toEqual(b);
+  });
+
+  it('leaves the board valid', () => {
+    const { b, s1 } = seed();
+    valid(scaleScreen(b, s1, 2.5));
+    valid(scaleScreen(b, s1, SCALE_MIN));
   });
 });
 

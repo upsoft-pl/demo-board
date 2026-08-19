@@ -166,6 +166,15 @@ button{cursor:pointer}
 .hd-sw{left:-6px;bottom:-6px;cursor:nesw-resize}
 .hd-w {left:-6px;top:calc(50% - 5.5px);cursor:ew-resize}
 
+/* canvas screen-resize handles — inside the corners, because .cscr clips (it
+   hides a cropped image's overflow), so -6px handles like .hd would vanish */
+.rhd{position:absolute;width:16px;height:16px;background:var(--accent);border:2px solid #12160C;
+  border-radius:3px;box-sizing:border-box;z-index:3}
+.rhd-nw{left:5px;top:5px;cursor:nwse-resize}
+.rhd-ne{right:5px;top:5px;cursor:nesw-resize}
+.rhd-se{right:5px;bottom:5px;cursor:nwse-resize}
+.rhd-sw{left:5px;bottom:5px;cursor:nesw-resize}
+
 /* ── crop ──────────────────────────────────────────────────────────────── */
 #cropview{position:absolute;inset:0;display:none;grid-template-rows:1fr auto;place-items:center;
   padding:24px;overflow:hidden;gap:14px}
