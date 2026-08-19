@@ -93,6 +93,29 @@ describe('validateBoard', () => {
     b.groups[0].layout = 'manual';
     expect(validateBoard(b).errors.join()).toMatch(/manual layout requires pos/);
   });
+
+  it('accepts an optional brand with a logo and opacity', () => {
+    expect(validateBoard({ ...good(), brand: { logo: 'images/logo.svg', opacity: 0.6 } }))
+      .toEqual({ ok: true, errors: [] });
+  });
+
+  it('accepts a brand with just a logo (opacity absent)', () => {
+    expect(validateBoard({ ...good(), brand: { logo: 'images/logo.svg' } }).ok).toBe(true);
+  });
+
+  it('rejects a brand whose logo is missing or not a string', () => {
+    expect(validateBoard({ ...good(), brand: { opacity: 0.5 } }).errors.join())
+      .toMatch(/logo must be a non-empty string/);
+    expect(validateBoard({ ...good(), brand: { logo: 42 } }).errors.join())
+      .toMatch(/logo must be a non-empty string/);
+  });
+
+  it('rejects a brand opacity outside 0..1', () => {
+    expect(validateBoard({ ...good(), brand: { logo: 'images/logo.svg', opacity: 1.5 } }).errors.join())
+      .toMatch(/opacity must be a number in 0\.\.1/);
+    expect(validateBoard({ ...good(), brand: { logo: 'images/logo.svg', opacity: 'x' } }).errors.join())
+      .toMatch(/opacity must be a number in 0\.\.1/);
+  });
 });
 
 describe('screen background', () => {

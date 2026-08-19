@@ -113,7 +113,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     <div id="glabels"></div>
     <div id="fps"></div>
     <svg id="leaders"></svg><div id="targets"></div><div id="noteshadows"></div><div id="notes"></div>
-    <div id="mark"><s>◆</s> &nbsp;<span></span></div>
+    <div id="mark"><s>◆</s><span></span></div>
     <div id="caption"><span class="g"><em></em><span></span></span>
       <span class="k"></span><div class="t"></div><div class="r"></div></div>
     <div id="dock" class="chip">frame this screen <em>↵</em></div>
@@ -155,6 +155,15 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
   const backBtn = $('#back'), fwdBtn = $('#fwd'), prevBtn = $('#prev'), nextBtn = $('#next');
   const scrim = $('#scrim'), pal = $('#pal'), palQ = $('#pal-q'), palList = $('#pal-list');
   $('#mark span').textContent = board.title;
+  // Presenter branding: a logo takes the place of the ◆ glyph, the board title
+  // stays beside it. Opacity is author-set (CSS level). Absent brand = the ◆.
+  if (board.brand?.logo) {
+    const mark = $('#mark'), img = document.createElement('img');
+    img.src = srcOf(board.brand.logo);
+    img.alt = '';
+    if (board.brand.opacity != null) img.style.opacity = board.brand.opacity;
+    mark.replaceChild(img, mark.querySelector('s'));
+  }
 
   const GPAD = 190;
   const glabels = $('#glabels');

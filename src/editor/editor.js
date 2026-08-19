@@ -10,7 +10,7 @@ import {
   addScreen, updateScreen, moveScreen, deleteScreen,
   addStep, updateStep, reorderSteps, deleteStep,
   addNote, updateNote, reorderNotes, deleteNote, normalizeRect,
-  setBoardTitle, setBoardBackground, setScreenBackground, DEFAULT_COLORS,
+  setBoardTitle, setBoardBackground, setScreenBackground, setBrand, DEFAULT_COLORS,
   applyHandle, moveRect, setScreenCrop, replaceScreenImage, moveScreenToGroup, moveGroup, HANDLES,
   scaleScreen, SCALE_MIN, SCALE_MAX,
 } from '../core/edit.js';
@@ -83,10 +83,12 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
 
   /* ── images ──────────────────────────────────────────────────────────── */
   async function warmImages() {
-    for (const g of board.groups) for (const s of g.screens) {
-      if (urlCache.has(s.src)) continue;
-      try { urlCache.set(s.src, await store.imageURL(board.id, s.src.replace(/^images\//, ''))); }
-      catch { urlCache.set(s.src, ''); }
+    const srcs = board.groups.flatMap(g => g.screens.map(s => s.src));
+    if (board.brand?.logo) srcs.push(board.brand.logo);
+    for (const src of srcs) {
+      if (urlCache.has(src)) continue;
+      try { urlCache.set(src, await store.imageURL(board.id, src.replace(/^images\//, ''))); }
+      catch { urlCache.set(src, ''); }
     }
   }
   const srcOf = s => urlCache.get(s) || '';
@@ -298,6 +300,70 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         g.layout === 'manual'
           ? 'Drag to resize this screenshot — or drag a corner handle on the canvas.'
           : 'Resize this screenshot relative to the others in the grid.');
+    };
+
+    /**
+     * Upload / preview / opacity / remove for the presenter logo. A hidden file
+     * input drives both "upload" and "replace"; the opacity slider live-previews
+     * and, like sizeControl, folds a whole slide into one undo entry.
+     */
+    const brandControl = () => {
+      const brand = board.brand;
+      const wrap = el('div');
+      const file = el('input');
+      file.type = 'file'; file.accept = 'image/*'; file.style.display = 'none';
+      file.dataset.testid = 'brand-file';
+      file.onchange = async () => {
+        const f = file.files?.[0];
+        if (!f) return;
+        try { commit(setBrand(board, { logo: await stashBrandLogo(f), opacity: brand?.opacity ?? 1 })); }
+        catch (e) { toast(e.message, 'bad'); }
+      };
+      wrap.appendChild(file);
+
+      if (!brand?.logo) {
+        const up = el('button', 'btn', 'upload logo');
+        up.dataset.testid = 'brand-upload';
+        up.onclick = () => file.click();
+        wrap.appendChild(up);
+        return wrap;
+      }
+
+      const prev = el('div', 'brand-prev');
+      const img = el('img');
+      img.src = srcOf(brand.logo);
+      img.style.opacity = brand.opacity ?? 1;
+      img.dataset.testid = 'brand-preview';
+      prev.appendChild(img);
+      wrap.appendChild(prev);
+
+      const op = el('input');
+      op.type = 'range'; op.min = '0'; op.max = '100'; op.step = '5';
+      op.value = String(Math.round((brand.opacity ?? 1) * 100));
+      op.dataset.testid = 'brand-opacity';
+      let pre = null;
+      op.oninput = () => {
+        if (pre === null) pre = board;
+        board = setBrand(board, { logo: brand.logo, opacity: +op.value / 100 });   // live
+        img.style.opacity = +op.value / 100;
+      };
+      op.onchange = () => {
+        if (pre === null) return;
+        const moved = setBrand(pre, { logo: brand.logo, opacity: +op.value / 100 });
+        board = pre; pre = null;
+        commit(moved);                                    // one undo entry per slide
+      };
+      wrap.appendChild(field('Opacity', op));
+
+      const row = el('div', 'row');
+      const change = el('button', 'btn', 'replace');
+      change.onclick = () => file.click();
+      const rm = el('button', 'btn danger', 'remove');
+      rm.dataset.testid = 'brand-remove';
+      rm.onclick = () => commit(setBrand(board, { logo: null }));
+      row.appendChild(change); row.appendChild(rm);
+      wrap.appendChild(row);
+      return wrap;
     };
 
     if (sel.kind === 'group' && selGroup()) {
@@ -523,6 +589,8 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
         v => commit(setBoardBackground(board, v || DEFAULT_SCREEN_BG))),
       'Sits behind every screenshot. Only visible where an image is transparent — ' +
       'individual screens can override it.'));
+    add(field('Brand logo', brandControl(),
+      'Shown top-left in the player, in place of the ◆ mark. SVG recommended.'));
     add(el('div', 'empty', 'Select a group, screen or step to edit it.'));
   }
 
@@ -964,6 +1032,18 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
       `${Date.now().toString(36)}-${label}`, new Uint8Array(await file.arrayBuffer()));
     urlCache.set(src, await store.imageURL(board.id, src.replace(/^images\//, '')));
     return { src, w, h };
+  }
+
+  /**
+   * Store a brand logo and return its board-relative src. Unlike a screenshot,
+   * the logo needs no intrinsic size (it renders at a fixed CSS height), so we
+   * skip the size probe — SVGs without width/height attrs report none anyway.
+   */
+  async function stashBrandLogo(file) {
+    const src = await store.putImage(board.id,
+      `brand-${Date.now().toString(36)}-${file.name}`, new Uint8Array(await file.arrayBuffer()));
+    urlCache.set(src, await store.imageURL(board.id, src.replace(/^images\//, '')));
+    return src;
   }
 
   async function replaceScreen(screenId, file) {

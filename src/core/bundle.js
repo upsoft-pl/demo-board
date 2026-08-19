@@ -21,9 +21,9 @@ const RAND = prefix =>
 /** Image filenames a board actually references, relative to images/. */
 export function referencedImages(board) {
   const out = new Set();
-  for (const g of board.groups) for (const s of g.screens) {
-    out.add(String(s.src).replace(/^\.?\//, '').replace(/^images\//, ''));
-  }
+  const rel = p => String(p).replace(/^\.?\//, '').replace(/^images\//, '');
+  for (const g of board.groups) for (const s of g.screens) out.add(rel(s.src));
+  if (board.brand?.logo) out.add(rel(board.brand.logo));   // else publishing 404s it
   return [...out];
 }
 
