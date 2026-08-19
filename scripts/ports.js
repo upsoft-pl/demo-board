@@ -14,10 +14,12 @@ export function trio(base) {
 }
 
 // Base for the current worktree. Resolved relative to this file (not cwd) so it
-// is correct however Vite or Playwright happen to be launched.
-export function readBase() {
+// is correct however Vite or Playwright happen to be launched. The marker path
+// is injectable so the fallback is testable from anywhere — including from
+// inside a worktree, which really does have a .worktree.json.
+export function readBase(marker = new URL('../.worktree.json', import.meta.url)) {
   try {
-    const raw = readFileSync(new URL('../.worktree.json', import.meta.url));
+    const raw = readFileSync(marker);
     return JSON.parse(raw).port;
   } catch {
     return BASE_PORT; // no .worktree.json → main checkout

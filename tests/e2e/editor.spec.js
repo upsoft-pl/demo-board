@@ -773,6 +773,40 @@ test('the player shows only the cropped region', async ({ page }) => {
   expect(g.img[1] / g.plate[1]).toBeCloseTo(1, 1);
 });
 
+test('the annotate plate clips the cropped screenshot', async ({ page }) => {
+  await boardWithScreen(page);
+  await page.evaluate(() => {
+    const b = window.__editor.board;
+    window.__editor.applyCrop(b.groups[0].screens[0].id, { x: 0.25, y: 0, w: 0.5, h: 1 });
+  });
+  await page.getByTestId('mode-annotate').click();
+  await page.waitForFunction(() => {
+    const img = document.querySelector('#shot img');
+    return img && img.getAttribute('src');
+  });
+  // A 2x horizontal crop scales the image to 200% of the plate and shifts it
+  // left by 50%, so it spills half a plate-width past each edge. The plate must
+  // clip that: a point just outside #shot's right edge (still inside the padded
+  // #annot stage) must not land on the screenshot. getBoundingClientRect ignores
+  // overflow clipping, so the img/plate ratio alone can't catch the spill —
+  // elementFromPoint respects both the clip and pointer-events, so we re-enable
+  // pointer-events on the img (the app sets none for authoring) and hit-test the
+  // spill point: a clipped plate suppresses the hit, an unclipped one doesn't.
+  const probe = await page.evaluate(() => {
+    const shot = document.getElementById('shot');
+    const img = shot.querySelector('img');
+    img.style.pointerEvents = 'auto';
+    const r = shot.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.right + 8, r.top + r.height / 2);
+    return {
+      ratio: img.getBoundingClientRect().width / r.width,
+      hitsImg: hit === img,
+    };
+  });
+  expect(probe.ratio, 'the crop scale was not applied').toBeCloseTo(2, 1);
+  expect(probe.hitsImg, 'the cropped image spills past the plate — #shot does not clip').toBe(false);
+});
+
 /* ── replace ─────────────────────────────────────────────────────────────── */
 
 test('replacing an image keeps the screen, its steps and its notes', async ({ page }) => {
