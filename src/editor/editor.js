@@ -1129,7 +1129,9 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     try {
       const stage = el('div');
       box.appendChild(stage);
-      player = createPlayer({ mount: stage, board, resolveSrc: srcOf });
+      // Open preview on the layout viewport, not the opening step — see the
+      // player's start() (initialCam). The reverse carry-back is in setMode.
+      player = createPlayer({ mount: stage, board, resolveSrc: srcOf, initialCam: { ...cam } });
       player.start();
       window.__player = player;                // e2e handle, same as the standalone player
     } catch (e) {
@@ -1156,7 +1158,14 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
     const prev = $('#previewHost');
     if (prev) prev.classList.toggle('hidden', m !== 'preview');
     if (m === 'preview') renderPreview();
-    else if (player) { player.destroy(); player = null; }
+    else if (player) {
+      // Symmetric with entry: carry the preview camera back so layout resumes
+      // exactly where preview left off. Drags re-read cam at grab time, so a
+      // repaint is all it takes.
+      cam = player.camera;
+      player.destroy(); player = null;
+      paintCanvas();
+    }
     if (m === 'annotate') renderAnnotate();
     if (m === 'crop') { cropDraft = null; renderCrop(); }
   }
@@ -1261,6 +1270,7 @@ export function createEditor({ mount, store, board: initial, onExit, toast }) {
 
   return {
     get board() { return board; },
+    get camera() { return { ...cam }; },   // test seam, mirrors the player's
     setMode,
     selectBoard: () => select({ kind: 'board' }),
     /* test seams for flows that start outside the page (file pickers, clipboard) */
