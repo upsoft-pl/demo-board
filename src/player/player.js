@@ -7,7 +7,7 @@
 import {
   safeBox, fitOf, camFor, camForBox, boundsOf, placeScreens,
   hotspotToViewport, computeNoteLayout, leaderPath, framingRatio, isCentred,
-  NOTE_W, MARGIN, TOP_PAD,
+  uiScale, NOTE_W, MARGIN, TOP_PAD,
 } from '../core/layout.js';
 import {
   validateBoard, normalizeBoard, migrateBoard, resolveStep, reconcileRef, findGroup,
@@ -216,6 +216,11 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
 
   /* ── camera ──────────────────────────────────────────────────────────── */
   const vp = () => ({ w: window.innerWidth, h: window.innerHeight });
+  // One factor grows the whole screen-space overlay above FHD (no-op at/below).
+  // Both CSS (via --ui-scale) and the core layout constants read the same number
+  // so the note box, its gutter, and the leader endpoints never drift apart.
+  const uscale = () => uiScale(vp());
+  const applyScale = () => mount.style.setProperty('--ui-scale', uscale());
   let cam = { x: 0, y: 0, z: 0.1 }, anim = null;
   let ref = { groupId: board.groups[0]?.id, stepId: board.groups[0]?.steps[0]?.id };
   let activeGutter = 'right', live = [], liveKey = null, dockable = null;
@@ -274,7 +279,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
    */
   const zoomState = new Map();
   function updateZoomable() {
-    const box = safeBox(vp(), 'right', false);
+    const box = safeBox(vp(), 'right', false, uscale());
     for (const [id, el] of plateEl) {
       const on = navScreens.has(id) && cam.z < fitOf(placed.get(id), box) * DOCK_MIN;
       if (zoomState.get(id) !== on) { el.classList.toggle('zoomable', on); zoomState.set(id, on); }
@@ -390,7 +395,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     })(performance.now());
   }
   const camForScreen = (screenId, gutter, hasNotes) =>
-    camFor(placed.get(screenId), safeBox(vp(), gutter, hasNotes), vp());
+    camFor(placed.get(screenId), safeBox(vp(), gutter, hasNotes, uscale()), vp());
   const groupCam = gid => camForBox(groupBB.get(gid), vp(), 700);
   const boardCam = () => camForBox(boardBB, vp(), 900);
 
@@ -465,6 +470,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       viewport: vp(),
       gutter: activeGutter,
       captionBottom: capBox ? capBox.bottom : null,
+      scale: uscale(),
     });
 
     for (const pos of out) {
@@ -476,15 +482,17 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
       n.shadow.style.top = `${pos.y}px`;
       n.shadow.style.height = `${n.el.offsetHeight}px`;
       const hs = hotspotToViewport(n.rect, pr);
+      const pad = 6 * uscale();
       // assign properties individually: `cssText +=` runs every frame and
       // concatenates declarations into each other, corrupting them
-      n.ring.style.left = `${hs.left - 6}px`;
-      n.ring.style.top = `${hs.top - 6}px`;
-      n.ring.style.width = `${hs.width + 12}px`;
-      n.ring.style.height = `${hs.height + 12}px`;
+      n.ring.style.left = `${hs.left - pad}px`;
+      n.ring.style.top = `${hs.top - pad}px`;
+      n.ring.style.width = `${hs.width + pad * 2}px`;
+      n.ring.style.height = `${hs.height + pad * 2}px`;
       n.path.setAttribute('d', leaderPath(pos.leader));
       n.dot.setAttribute('cx', pos.dot.x);
       n.dot.setAttribute('cy', pos.dot.y);
+      n.dot.setAttribute('r', 3.5 * uscale());
       if (first) n.path.style.setProperty('--len', n.path.getTotalLength());
     }
   }
@@ -530,7 +538,8 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     capT.innerHTML = richText(step.caption);
     caption.classList.toggle('centered', step.screen == null);
     if (step.screen != null) {
-      caption.style.left = `${step.gutter === 'right' ? vp().w - NOTE_W - MARGIN : MARGIN}px`;
+      const s = uscale();
+      caption.style.left = `${step.gutter === 'right' ? vp().w - (NOTE_W + MARGIN) * s : MARGIN * s}px`;
     }
     for (const n of [capG.parentNode, capK, capT]) {
       n.style.animation = 'none'; void n.offsetWidth; n.style.animation = '';
@@ -794,7 +803,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
     const plate = document.elementFromPoint(x, y)?.closest('.plate');
     const id = plate?.dataset.screen;
     if (!id || !navScreens.has(id)) return false;
-    if (cam.z >= fitOf(placed.get(id), safeBox(vp(), 'right', false)) * DOCK_MIN) return false;
+    if (cam.z >= fitOf(placed.get(id), safeBox(vp(), 'right', false, uscale())) * DOCK_MIN) return false;
     dock(id);
     return true;
   }
@@ -867,6 +876,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
   }
   window.addEventListener('keydown', onKey);
   window.addEventListener('resize', () => {
+    applyScale();
     const r = resolveStep(board, ref.groupId, ref.stepId);
     if (!r) return;
     paintCaption(r.group, r.step, r.si);
@@ -895,6 +905,7 @@ export function createPlayer({ mount, board: raw, baseUrl = '', resolveSrc, init
   /* ── boot ────────────────────────────────────────────────────────────── */
   const first = board.groups[0];
   if (first) applyAccent(first);
+  applyScale();
   cam = boardCam(); cam.z *= .86; render(); histUI();
 
   return {
